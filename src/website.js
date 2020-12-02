@@ -22,10 +22,12 @@ async function pull(options) {
     const shopify = init();
     console.log(program.onlinestore);
     const res = await shopify.pullAssets(options.theme, program.onlinestore);
+    await shopify.pullRedirects(program.outputDir);
+    await shopify.pullScriptTags(program.outputDir);
     // console.log(res);
-    for (const asset of res.assets || []) {
-        console.log(`${asset.key}`);
-    }
+    // for (const asset of res.assets || []) {
+    //     console.log(`${asset.key}`);
+    // }
 }
 
 program
@@ -34,7 +36,7 @@ program
 program
     .option('--debug', 'enable debug', false)
     .option('--verbose', 'enable verbose', false)
-    .option('--onlinestore <dir>', 'location to save the store files', "./shopify");
+    .option('--outputDir <dir>', 'location to save the store files', "./shopify");
 
 program
     .command('list')
