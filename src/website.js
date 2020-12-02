@@ -20,10 +20,9 @@ async function list() {
 
 async function pull(options) {
     const shopify = init();
-    console.log(program.onlinestore);
-    const res = await shopify.pullAssets(options.theme, program.onlinestore);
-    await shopify.pullRedirects(program.outputDir);
-    await shopify.pullScriptTags(program.outputDir);
+    if (options.assets) await shopify.pullAssets(options.theme, program.onlinestore);
+    if (options.redirects) await shopify.pullRedirects(program.outputDir);
+    if (options.scripttags) await shopify.pullScriptTags(program.outputDir);
     // console.log(res);
     // for (const asset of res.assets || []) {
     //     console.log(`${asset.key}`);
@@ -44,6 +43,9 @@ program
 
 program
     .command('pull')
+    .option('--no-assets', 'disable pulling assets', false)
+    .option('--no-redirects', 'disable pulling redirects', false)
+    .option('--no-scripttags', 'disable pulling scripts', false)
     .action(pull);
 
 if (process.argv.indexOf("--debug") === -1) console.debug = function () {};

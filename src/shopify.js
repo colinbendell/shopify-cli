@@ -54,7 +54,6 @@ class Shopify {
                             return;
                         }
                     }
-                    console.log(`${filename} ${stats.size}==${asset.size} && ${Date.parse(stats.mtime)} > ${Date.parse(asset.updated_at)}`)
                 }
                 console.log(`SAVING: ${asset.key}`)
                 if (asset.public_url) {
@@ -74,26 +73,34 @@ class Shopify {
     }
 
     async pullRedirects(destDir = "./shopify") {
-        const count = await this.shopifyAPI.getRedirectsCount();
+        const count = (await this.shopifyAPI.getRedirectsCount()).count || 0;
         const redirects = [];
         while (redirects.length < count) {
             const maxID = Math.max(0, ...redirects.map(r => r.id));
-            redirects.push(await this.shopifyAPI.getRedirects(maxID));
+            const data = await this.shopifyAPI.getRedirects(maxID);
+            redirects.push(...data.redirects);
         }
-        const filename = path.join(destDir, "redirects.json");
-        await this.#saveFile(filename, JSON.stringify(redirects));
+        const filename = path.join(destDir, "redirects.csv");
+        const csvData = ["Redirect from,Redirect to"];
+        //TODO: .replace(",", "%2C")
+        csvData.push(...redirects.map(r => r.path + "," + r.target));
+        await this.#saveFile(filename, csvData.join('\n'));
         return redirects;
     }
 
     async pullScriptTags(destDir = "./shopify") {
-        const count = await this.shopifyAPI.getScriptTagsCount();
+        const count = (await this.shopifyAPI.getScriptTagsCount()).count || 0;
         const scripts = [];
         while (scripts.length < count) {
             const maxID = Math.max(0, ...scripts.map(r => r.id));
-            scripts.push(await this.shopifyAPI.getScriptTags(maxID));
+            const data = await this.shopifyAPI.getScriptTags(maxID)
+            scripts.push(...data.scripts);
         }
-        const filename = path.join(destDir, "scripts.json");
-        await this.#saveFile(filename, JSON.stringify(scripts));
+        const filename = path.join(destDir, "scripts.csv");
+        const csvData = ["src,event,scope"];
+        //TODO: .replace(",", "%2C")
+        csvData.push(...scripts.map(s => s.src + "," + s.event, + ",", s.scope));
+        await this.#saveFile(filename, csvData);
         return scripts;
     }
 }
