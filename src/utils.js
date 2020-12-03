@@ -16,6 +16,7 @@ async function md5File(filename){
 }
 
 async function* getFiles(dir) {
+    if (!fs.existsSync(dir)) return;
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
         const res = path.resolve(dir, entry.name);

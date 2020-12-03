@@ -173,7 +173,7 @@ class ShopifyAPI {
     }
 
     async deleteAsset(themeID, key) {
-        return await this.#get(`/admin/api/2020-10/themes/${themeID}/assets.json?asset[key]=${key}`);
+        return await this.#delete(`/admin/api/2020-10/themes/${themeID}/assets.json?asset[key]=${key}`);
     }
 
 

@@ -20,14 +20,14 @@ async function list() {
 
 async function pull(options) {
     const shopify = init();
-    if (options.assets) await shopify.pullAssets(options.theme, program.onlinestore);
+    if (options.assets) await shopify.pullAssets(options.theme, program.outputDir);
     if (options.redirects) await shopify.pullRedirects(program.outputDir);
     if (options.scripttags) await shopify.pullScriptTags(program.outputDir);
 }
 
 async function push(options) {
     const shopify = init();
-    if (options.assets) await shopify.pushAssets(options.theme, program.onlinestore);
+    if (options.assets) await shopify.pushAssets(options.theme, program.outputDir);
     if (options.redirects) await shopify.pushRedirects(program.outputDir);
     if (options.scripttags) await shopify.pushScriptTags(program.outputDir);
 }
@@ -57,6 +57,7 @@ program
 
 program
     .command('pull')
+    .description('pull all remote shopify changes locally')
     .option('--theme <name>', 'use a specific theme (defaults to the theme that is currently active)')
     .option('--force', 'force download all files', false)
     .option('--no-assets', 'disable pulling assets', false)
@@ -66,11 +67,12 @@ program
 
 program
     .command('push')
+    .description('push all local changes up to shopify')
     .option('--theme <name>', 'use a specific theme (defaults to the theme that is currently active)')
     .option('--force', 'force upload all files', false)
-    .option('--no-assets', 'disable pulling assets', false)
-    .option('--no-redirects', 'disable pulling redirects', false)
-    .option('--no-scripttags', 'disable pulling scripts', false)
+    .option('--no-assets', 'disable pushing assets', false)
+    .option('--no-redirects', 'disable pushing redirects', false)
+    .option('--no-scripttags', 'disable pushing scripts', false)
     .action(push);
 
 program

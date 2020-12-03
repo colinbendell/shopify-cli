@@ -35,6 +35,7 @@ class Shopify {
     }
 
     #readFile(filename) {
+        if (!fs.existsSync(filename)) return;
         return fs.readFileSync(filename, "utf-8");
     }
 
@@ -63,13 +64,25 @@ class Shopify {
         await this.shopifyAPI.createTheme(themeName, 'unpublished', src)
     }
 
+    async #getAssets(themeID) {
+        const data = await this.shopifyAPI.getAssets(themeID)
+        const assetsMap = new Map(data.assets.map(a => [a.key, a]));
+        for (const key of assetsMap.keys()) {
+            if (assetsMap.has(key + ".liquid")) {
+                assetsMap.delete(key);
+            }
+        }
+        return [...assetsMap.values()];
+    }
+
+
     async pullAssets(themeName = null, destDir = "./shopify", save = true, force = false) {
         const theme = await this.#getThemeID(themeName);
         if (!theme || !theme.id) return [];
 
-        const data = await this.shopifyAPI.getAssets(theme.id);
+        const assets = await this.getAssets(theme.id);
         if (save) {
-            await Promise.all(data.assets.map(async asset => {
+            await Promise.all(assets.map(async asset => {
                 const filename = path.join(destDir, asset.key);
 
                 // API optimization
@@ -103,17 +116,17 @@ class Shopify {
 
             }))
         }
-        return data;
+        return assets;
     }
 
     async pushAssets(themeName = null, destDir = "./shopify", force = false) {
         const theme = await this.#getThemeID(themeName);
         if (!theme || !theme.id) return [];
 
-        const data = await this.shopifyAPI.getAssets(theme.id);
+        const assets = await this.getAssets(theme.id);
         // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
         const knownDirs = new Set(["assets","layout","sections","templates","config","locales","snippets"]);
-        data.assets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
+        assets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
 
         const localFiles = new Set();
         for (const baseDir of knownDirs) {
@@ -125,7 +138,7 @@ class Shopify {
         const deletePaths = new Set();
 
         // this loop inspection is opposite the other ones. should iterate over the local files not the remote files
-        for (const asset of data.assets) {
+        for (const asset of assets) {
             const filename = path.join(destDir, asset.key);
 
             if (localFiles.has(asset.key)) {
@@ -146,7 +159,7 @@ class Shopify {
             }
             else {
                 localFiles.delete(asset.key);
-                deletePaths.set(asset.key);
+                deletePaths.add(asset.key);
             }
         }
 
@@ -160,10 +173,10 @@ class Shopify {
         // Deletes
         await Promise.all([...deletePaths.values()].map(async key => {
             console.log(`DELETE: ${key}`)
-            await this.shopifyAPI.deleteAssets(theme.id, key);
+            await this.shopifyAPI.deleteAsset(theme.id, key);
         }));
 
-        return data;
+        return assets;
     }
 
     async getRedirects() {
@@ -195,7 +208,7 @@ class Shopify {
         const createPaths = new Map();
 
         const filename = path.join(destDir, "redirects.csv");
-        const csvData = this.#readFile(filename).split(/[\n\r]+/);
+        const csvData = (this.#readFile(filename) || "").split(/[\n\r]+/);
         csvData.shift();
         for (const line of csvData) {
             if (!line || !line.startsWith('/')) continue; // skip empty lines or the first row;
@@ -261,7 +274,7 @@ class Shopify {
         const createScripts = new Map();
 
         const filename = path.join(destDir, "scripts.csv");
-        const csvData = this.#readFile(filename).split(/[\n\r]+/);
+        const csvData = (this.#readFile(filename) || "").split(/[\n\r]+/);
         csvData.shift();
         for (const line of csvData) {
             if (!line || !/\//.test(line)) continue; // skip empty lines or the first row;
