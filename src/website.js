@@ -32,7 +32,7 @@ async function push(options) {
     if (options.scripttags) await shopify.pushScriptTags(program.outputDir);
 }
 
-async function push(options) {
+async function publish(options) {
     const shopify = init();
     await shopify.publishTheme(options.theme);
 }
