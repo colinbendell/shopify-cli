@@ -157,12 +157,12 @@ class Shopify {
 
     async getRedirects() {
         let count = null;
-        const count = (await this.shopifyAPI.getRedirectsCount()).count || 0;
         const redirects = [];
-        while (redirects.length < count) {
+        while (count === null || redirects.length < count) {
             const maxID = Math.max(0, ...redirects.map(r => r.id));
             const data = await this.shopifyAPI.getRedirects(maxID);
             redirects.push(...data.redirects);
+            if (count === null) count = redirects.length < 250 ? redirects.length : (await this.shopifyAPI.getRedirectsCount()).count;
         }
         return redirects;
     }
@@ -221,12 +221,13 @@ class Shopify {
     }
 
     async getScriptTags() {
-        const count = (await this.shopifyAPI.getScriptTagsCount()).count || 0;
+        let count = null;
         const scripts = [];
-        while (scripts.length < count) {
+        while (count === null || scripts.length < count) {
             const maxID = Math.max(0, ...scripts.map(r => r.id));
             const data = await this.shopifyAPI.getScriptTags(maxID)
             scripts.push(...data.script_tags);
+            if (count === null) count = scripts.length < 250 ? scripts.length : (await this.shopifyAPI.getScriptTagsCount()).count;
         }
         return scripts;
     }
