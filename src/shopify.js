@@ -42,7 +42,7 @@ class Shopify {
         return this.shopifyAPI.getThemes();
     }
 
-    async publishTheme(themeName = null) {
+    async publishTheme(themeName) {
         if (!themeName) return;
 
         const theme = await this.#getThemeID(themeName);
@@ -53,14 +53,14 @@ class Shopify {
         await this.shopifyAPI.updateTheme(theme.id, theme.name, 'main')
     }
 
-    async init(themeName = null) {
+    async initTheme(themeName, src = null) {
         if (!themeName) return;
 
         const theme = await this.#getThemeID(themeName);
         if (theme || theme.id) return;
 
         console.log(`CREATE Theme: ${theme.name}`);
-        await this.shopifyAPI.createTheme(theme.name, 'unpublished')
+        await this.shopifyAPI.createTheme(theme.name, 'unpublished', src)
     }
 
     async pullAssets(themeName = null, destDir = "./shopify", save = true, force = false) {

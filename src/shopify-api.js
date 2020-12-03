@@ -128,14 +128,15 @@ class ShopifyAPI {
     async getTheme(themeID) {
         return await this.#get(`/admin/api/2020-10/themes/${themeID}.json`)
     }
-    async createTheme(themeID, src, role="unpublished") {
+    async createTheme(themeID, role="unpublished", src = null) {
         const data = {
             theme: {
                 id: themeID,
-                src: src,
                 role: role
             }
         }
+        if (src) data.theme.src = src;
+
         return await this.#post(`/admin/api/2020-10/themes/${themeID}.json`, data)
 
     }
