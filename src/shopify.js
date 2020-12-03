@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { fetch } = require('fetch-h2');
 const ShopifyAPI = require('./shopify-api');
 
@@ -32,6 +33,18 @@ class Shopify {
         })
     }
 
+    #readFile(filename) {
+        return fs.readFileSync(filename, "utf-8");
+    }
+
+    async #md5File(filename) {
+        return new Promise(resolve => {
+            const hash = crypto.createHash('md5');
+            fs.createReadStream(filename)
+                .on('data', data => hash.update(data))
+                .on('end', () => resolve(hash.digest('hex')));
+        });
+    }
 
     async list() {
         return this.shopifyAPI.getThemes();
@@ -47,14 +60,20 @@ class Shopify {
                 const filename = path.join(destDir, asset.key);
 
                 if (!force && fs.existsSync(filename)) {
+
+                    //skip if the checksums aren't any different from remote and local files
+                    if (asset.checksum && asset.checksum === this.#md5File(filename)) {
+                        console.debug(`SKIP: ${filename}`);
+                        return;
+                    }
+                    //skip if the local file has the same byte size and the modified date locally is > the remote update date
                     const stats = fs.statSync(filename);
-                    if (stats.size === asset.size) {
-                        if (Date.parse(stats.mtime) >= Date.parse(asset.updated_at)) {
-                            console.info(`SKIP: ${filename}`);
-                            return;
-                        }
+                    if (stats.size === asset.size && Date.parse(stats.mtime) >= Date.parse(asset.updated_at)) {
+                        console.debug(`SKIP: ${filename}`);
+                        return;
                     }
                 }
+
                 console.log(`SAVING: ${asset.key}`)
                 if (asset.public_url) {
                     const res = await fetch(asset.public_url);
