@@ -120,6 +120,7 @@ class Shopify {
 
         const filename = path.join(destDir, "redirects.csv");
         const csvData = this.#readFile(filename).split(/[\n\r]+/);
+        csvData.shift();
         for (const line of csvData) {
             if (!line || !line.startsWith('/')) continue; // skip empty lines or the first row;
             const [path, target] = line.split(',');
@@ -157,7 +158,7 @@ class Shopify {
         while (scripts.length < count) {
             const maxID = Math.max(0, ...scripts.map(r => r.id));
             const data = await this.shopifyAPI.getScriptTags(maxID)
-            scripts.push(...data.scripts);
+            scripts.push(...data.script_tags);
         }
         return scripts;
     }
@@ -167,7 +168,7 @@ class Shopify {
         const filename = path.join(destDir, "scripts.csv");
         const csvData = ["src,event,scope"];
         //TODO: .replace(",", "%2C")
-        csvData.push(...scripts.map(s => s.src + "," + s.event + "," + s.scope));
+        csvData.push(...scripts.map(s => s.src + "," + s.event + "," + s.display_scope));
         await this.#saveFile(filename, csvData.join('\n'));
         return scripts;
     }
@@ -179,10 +180,11 @@ class Shopify {
         const updateScripts = new Map();
         const createScripts = new Map();
 
-        const filename = path.join(destDir, "redirects.csv");
+        const filename = path.join(destDir, "scripts.csv");
         const csvData = this.#readFile(filename).split(/[\n\r]+/);
+        csvData.shift();
         for (const line of csvData) {
-            if (!line || !line.startsWith('/')) continue; // skip empty lines or the first row;
+            if (!line || !/\//.test(line)) continue; // skip empty lines or the first row;
             const [src,event,scope] = line.split(',');
             if (originalScripts.has(src)) {
                 const detail = originalScripts.get(src);
@@ -200,17 +202,17 @@ class Shopify {
 
         // Creates
         await Promise.all([...createScripts.values()].map(async s => {
-            console.info(`Adding Script: ${s.path} => ${s.target}`);
-            await this.shopifyAPI.createScriptTags(s.path, s.target);
+            console.info(`Adding Script: ${s.src} ${s.event} (${s.display_scope})`);
+            await this.shopifyAPI.createScriptTags(s.src, s.target);
         }));
         // Updates
         await Promise.all([...updateScripts.values()].map(async s => {
-            console.info(`Updating Script: ${s.path} => ${s.target}`);
-            await this.shopifyAPI.updateScriptTags(s.id, s.path, s.target);
+            console.info(`Updating Script: ${s.src} ${s.event} (${s.display_scope})`);
+            await this.shopifyAPI.updateScriptTags(s.id, s.src, s.event, s.display_scope);
         }));
         // Deletes
         await Promise.all([...originalScripts.values()].map(async s => {
-            console.info(`Deleting Script: ${s.path}`);
+            console.info(`Deleting Script: ${s.src}`);
             await this.shopifyAPI.deleteScriptTags(s.id);
         }));
         return csvData;

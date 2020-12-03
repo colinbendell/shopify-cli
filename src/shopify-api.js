@@ -230,7 +230,7 @@ class ShopifyAPI {
         return await this.#put(`/admin/api/2020-10/script_tags/${scriptTagID}.json`, data);
     }
 
-    async deleteScriptTags(redirectID) {
+    async deleteScriptTags(scriptTagID) {
         return await this.#delete(`/admin/api/2020-10/script_tags/${scriptTagID}.json`);
     }
 
