@@ -37,6 +37,11 @@ async function publish(options) {
     await shopify.publishTheme(options.theme);
 }
 
+async function init(options) {
+    const shopify = init();
+    await shopify.initTheme(options.theme);
+}
+
 program
     .version('1.0');
 
@@ -66,6 +71,11 @@ program
     .option('--no-redirects', 'disable pulling redirects', false)
     .option('--no-scripttags', 'disable pulling scripts', false)
     .action(push);
+
+program
+    .command('init <theme>')
+    .description('init a new theme')
+    .action(init);
 
 program
     .command('publish <theme>')
