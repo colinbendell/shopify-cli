@@ -41,6 +41,16 @@ class Shopify {
     async list() {
         return this.shopifyAPI.getThemes();
     }
+    async publishTheme(themeName = null) {
+        if (!themeName) return;
+
+        const theme = await this.#getThemeID(themeName);
+        if (!theme || !theme.id) return;
+        if (theme.role !== 'main') return;
+
+        console.log(`PUBLISHING: ${theme.name}`);
+        await this.shopifyAPI.updateTheme(theme.id, theme.name, 'main')
+    }
 
     async pullAssets(themeName = null, destDir = "./shopify", save = true, force = false) {
         const theme = await this.#getThemeID(themeName);
@@ -146,6 +156,7 @@ class Shopify {
     }
 
     async getRedirects() {
+        let count = null;
         const count = (await this.shopifyAPI.getRedirectsCount()).count || 0;
         const redirects = [];
         while (redirects.length < count) {

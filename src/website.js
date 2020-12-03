@@ -32,6 +32,11 @@ async function push(options) {
     if (options.scripttags) await shopify.pushScriptTags(program.outputDir);
 }
 
+async function push(options) {
+    const shopify = init();
+    await shopify.publishTheme(options.theme);
+}
+
 program
     .version('1.0');
 
@@ -46,6 +51,8 @@ program
 
 program
     .command('pull')
+    .option('--theme <name>', 'use a specific theme (defaults to the theme that is currently active)')
+    .option('--force', 'force download all files', false)
     .option('--no-assets', 'disable pulling assets', false)
     .option('--no-redirects', 'disable pulling redirects', false)
     .option('--no-scripttags', 'disable pulling scripts', false)
@@ -53,10 +60,17 @@ program
 
 program
     .command('push')
+    .option('--theme <name>', 'use a specific theme (defaults to the theme that is currently active)')
+    .option('--force', 'force upload all files', false)
     .option('--no-assets', 'disable pulling assets', false)
     .option('--no-redirects', 'disable pulling redirects', false)
     .option('--no-scripttags', 'disable pulling scripts', false)
     .action(push);
+
+program
+    .command('publish <theme>')
+    .description('publish (make active) a given theme')
+    .action(publish);
 
 if (process.argv.indexOf("--debug") === -1) console.debug = function () {};
 if (process.argv.indexOf("--verbose") === -1 && process.argv.indexOf("--debug") === -1) console.info = function () {};
