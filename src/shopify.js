@@ -130,14 +130,16 @@ class Shopify {
         }
 
         // Create & Updates
-        await Promise.all([...localFiles.values()].map(async r => {
-            console.log(`UPDATE: ${r}`)
-            // await this.shopifyAPI.updateAsset(theme.id, r.id, r.path, r.target);
+        await Promise.all([...localFiles.values()].map(async key => {
+            console.log(`UPDATE: ${key}`);
+            //TODO: make this work for binary (use attachment)
+            const data = this.#readFile(path.join(destDir, key));
+            await this.shopifyAPI.updateAsset(theme.id, key, data);
         }));
         // Deletes
-        await Promise.all([...deletePaths.values()].map(async r => {
-            console.log(r);
-            //await this.shopifyAPI.deleteAssets(theme.id, r);
+        await Promise.all([...deletePaths.values()].map(async key => {
+            console.log(`DELETE: ${key}`)
+            await this.shopifyAPI.deleteAssets(theme.id, key);
         }));
 
         return data;
@@ -191,14 +193,17 @@ class Shopify {
 
         // Creates
         await Promise.all([...createPaths.values()].map(async r => {
+            console.log(`CREATE 302: ${r.path} => ${r.target}`);
             await this.shopifyAPI.createRedirect(r.path, r.target);
         }));
         // Updates
         await Promise.all([...updatePaths.values()].map(async r => {
+            console.log(`UPDATE 302: ${r.path} => ${r.target}`);
             await this.shopifyAPI.updateRedirect(r.id, r.path, r.target);
         }));
         // Deletes
         await Promise.all([...originalPaths.values()].map(async r => {
+            console.log(`DELETE 302: ${r.path}`);
             await this.shopifyAPI.deleteRedirect(r.id);
         }));
         return csvData;
@@ -227,7 +232,7 @@ class Shopify {
 
     async pushScriptTags(destDir = "./shopify") {
         const data = await this.getScriptTags();
-        const originalScripts = new Map(data.map(r => [r.path, r]));
+        const originalScripts = new Map(data.map(r => [r.src, r]));
 
         const updateScripts = new Map();
         const createScripts = new Map();
@@ -254,17 +259,17 @@ class Shopify {
 
         // Creates
         await Promise.all([...createScripts.values()].map(async s => {
-            console.info(`Adding Script: ${s.src} ${s.event} (${s.display_scope})`);
+            console.log(`CREATE ScriptTag: ${s.src} ${s.event} (${s.display_scope})`);
             await this.shopifyAPI.createScriptTags(s.src, s.target);
         }));
         // Updates
         await Promise.all([...updateScripts.values()].map(async s => {
-            console.info(`Updating Script: ${s.src} ${s.event} (${s.display_scope})`);
+            console.log(`UPDATE ScriptTag: ${s.src} ${s.event} (${s.display_scope})`);
             await this.shopifyAPI.updateScriptTags(s.id, s.src, s.event, s.display_scope);
         }));
         // Deletes
         await Promise.all([...originalScripts.values()].map(async s => {
-            console.info(`Deleting Script: ${s.src}`);
+            console.log(`DELETE ScriptTag: ${s.src}`);
             await this.shopifyAPI.deleteScriptTags(s.id);
         }));
         return csvData;

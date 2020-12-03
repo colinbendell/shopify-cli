@@ -164,7 +164,7 @@ class ShopifyAPI {
         return await this.#get(`/admin/api/2020-10/themes/${themeID}/assets.json?asset[key]=${key}`);
     }
 
-    async updateAsset(themeID, value, attachment) {
+    async updateAsset(themeID, key, value, attachment) {
         const data = {
             asset: { key }
         }
