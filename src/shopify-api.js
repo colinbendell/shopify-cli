@@ -164,6 +164,21 @@ class ShopifyAPI {
         return await this.#get(`/admin/api/2020-10/themes/${themeID}/assets.json?asset[key]=${key}`);
     }
 
+    async updateAsset(themeID, value, attachment) {
+        const data = {
+            asset: { key }
+        }
+        if (value) data.asset.value = value;
+        if (attachment) data.asset.attachment = attachment;
+
+        return await this.#put(`/admin/api/2020-10/themes/${themeID}/assets.json`, data);
+    }
+
+    async deleteAsset(themeID, key) {
+        return await this.#get(`/admin/api/2020-10/themes/${themeID}/assets.json?asset[key]=${key}`);
+    }
+
+
     //
     // Redirects
     //
