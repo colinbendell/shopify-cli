@@ -178,11 +178,11 @@ class ShopifyAPI {
     async createRedirect(path, target) {
         const data = {
             redirect: {
-                path,
-                target
+                path: path,
+                target: target
             }
         }
-        return await this.#post("/admin/api/2020-10/redirects.json", data);
+        return await this.#post(`/admin/api/2020-10/redirects.json`, data);
     }
 
     async updateRedirect(redirectID, path, target) {
@@ -193,11 +193,11 @@ class ShopifyAPI {
         }
         if (target) data.redirect.target = target;
         if (path) data.redirect.path = path;
-        return await this.#put("/admin/api/2020-10/redirects/${redirectID}.json", data);
+        return await this.#put(`/admin/api/2020-10/redirects/${redirectID}.json`, data);
     }
 
     async deleteRedirect(redirectID) {
-        return await this.#delete("/admin/api/2020-10/redirects/${redirectID}.json");
+        return await this.#delete(`/admin/api/2020-10/redirects/${redirectID}.json`);
     }
 
     //
@@ -212,14 +212,14 @@ class ShopifyAPI {
         return await this.#get(`/admin/api/2020-10/script_tags/count.json`)
     }
 
-    async createScriptTags(event="onload", src="https://example.com/script.js") {
+    async createScriptTags(src="https://example.com/script.js", event="onload") {
         const data = {
             script_tag: { event, src }
         }
-        return await this.#post("/admin/api/2020-10/script_tags.json", data);
+        return await this.#post(`/admin/api/2020-10/script_tags.json`, data);
     }
 
-    async updateScriptTags(scriptTagID, event="onload", src) {
+    async updateScriptTags(scriptTagID, src, event="onload") {
         const data = {
             script_tag: {
                 id: scriptTagID,
@@ -227,11 +227,11 @@ class ShopifyAPI {
             }
         }
         if (src) data.redirect.src = src;
-        return await this.#put("/admin/api/2020-10/script_tags/${scriptTagID}.json", data);
+        return await this.#put(`/admin/api/2020-10/script_tags/${scriptTagID}.json`, data);
     }
 
     async deleteScriptTags(redirectID) {
-        return await this.#delete("/admin/api/2020-10/script_tags/${scriptTagID}.json");
+        return await this.#delete(`/admin/api/2020-10/script_tags/${scriptTagID}.json`);
     }
 
 }

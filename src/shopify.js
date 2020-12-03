@@ -72,7 +72,7 @@ class Shopify {
         return data;
     }
 
-    async pullRedirects(destDir = "./shopify") {
+    async getRedirects() {
         const count = (await this.shopifyAPI.getRedirectsCount()).count || 0;
         const redirects = [];
         while (redirects.length < count) {
@@ -80,6 +80,10 @@ class Shopify {
             const data = await this.shopifyAPI.getRedirects(maxID);
             redirects.push(...data.redirects);
         }
+        return redirects;
+    }
+    async pullRedirects(destDir = "./shopify") {
+        const redirects = await this.getRedirects();
         const filename = path.join(destDir, "redirects.csv");
         const csvData = ["Redirect from,Redirect to"];
         //TODO: .replace(",", "%2C")
@@ -88,7 +92,47 @@ class Shopify {
         return redirects;
     }
 
-    async pullScriptTags(destDir = "./shopify") {
+    async pushRedirects(destDir = "./shopify") {
+        const data = await this.getRedirects();
+        const originalPaths = new Map(data.map(r => [r.path, r]));
+
+        const updatePaths = new Map();
+        const createPaths = new Map();
+
+        const filename = path.join(destDir, "redirects.csv");
+        const csvData = this.#readFile(filename).split(/[\n\r]+/);
+        for (const line of csvData) {
+            if (!line || !line.startsWith('/')) continue; // skip empty lines or the first row;
+            const [path, target] = line.split(',');
+            if (originalPaths.has(path)) {
+                const detail = originalPaths.get(path);
+                if (detail.target !== target) {
+                    detail.target = target;
+                    updatePaths.set(path, detail);
+                }
+                originalPaths.delete(path);
+            }
+            else {
+                createPaths.set(path, {path, target});
+            }
+        }
+
+        // Creates
+        await Promise.all([...createPaths.values()].map(async r => {
+            await this.shopifyAPI.createRedirect(r.path, r.target);
+        }));
+        // Updates
+        await Promise.all([...updatePaths.values()].map(async r => {
+            await this.shopifyAPI.updateRedirect(r.id, r.path, r.target);
+        }));
+        // Deletes
+        await Promise.all([...originalPaths.values()].map(async r => {
+            await this.shopifyAPI.deleteRedirect(r.id);
+        }));
+        return csvData;
+    }
+
+    async getScriptTags() {
         const count = (await this.shopifyAPI.getScriptTagsCount()).count || 0;
         const scripts = [];
         while (scripts.length < count) {
@@ -96,12 +140,61 @@ class Shopify {
             const data = await this.shopifyAPI.getScriptTags(maxID)
             scripts.push(...data.scripts);
         }
+        return scripts;
+    }
+
+    async pullScriptTags(destDir = "./shopify") {
+        const scripts = await this.getScriptTags();
         const filename = path.join(destDir, "scripts.csv");
         const csvData = ["src,event,scope"];
         //TODO: .replace(",", "%2C")
-        csvData.push(...scripts.map(s => s.src + "," + s.event, + ",", s.scope));
-        await this.#saveFile(filename, csvData);
+        csvData.push(...scripts.map(s => s.src + "," + s.event + "," + s.scope));
+        await this.#saveFile(filename, csvData.join('\n'));
         return scripts;
+    }
+
+    async pushScriptTags(destDir = "./shopify") {
+        const data = await this.getScriptTags();
+        const originalScripts = new Map(data.map(r => [r.path, r]));
+
+        const updateScripts = new Map();
+        const createScripts = new Map();
+
+        const filename = path.join(destDir, "redirects.csv");
+        const csvData = this.#readFile(filename).split(/[\n\r]+/);
+        for (const line of csvData) {
+            if (!line || !line.startsWith('/')) continue; // skip empty lines or the first row;
+            const [src,event,scope] = line.split(',');
+            if (originalScripts.has(src)) {
+                const detail = originalScripts.get(src);
+                if (detail.event !== event || detail.display_scope !== scope) {
+                    detail.event = event;
+                    detail.display_scope = scope;
+                    updateScripts.set(src, detail);
+                }
+                originalScripts.delete(src);
+            }
+            else {
+                createScripts.set(src, {src: src, event: event, display_scope: scope});
+            }
+        }
+
+        // Creates
+        await Promise.all([...createScripts.values()].map(async s => {
+            console.info(`Adding Script: ${s.path} => ${s.target}`);
+            await this.shopifyAPI.createScriptTags(s.path, s.target);
+        }));
+        // Updates
+        await Promise.all([...updateScripts.values()].map(async s => {
+            console.info(`Updating Script: ${s.path} => ${s.target}`);
+            await this.shopifyAPI.updateScriptTags(s.id, s.path, s.target);
+        }));
+        // Deletes
+        await Promise.all([...originalScripts.values()].map(async s => {
+            console.info(`Deleting Script: ${s.path}`);
+            await this.shopifyAPI.deleteScriptTags(s.id);
+        }));
+        return csvData;
     }
 }
 

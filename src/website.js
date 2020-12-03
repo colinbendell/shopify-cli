@@ -29,6 +29,17 @@ async function pull(options) {
     // }
 }
 
+async function push(options) {
+    const shopify = init();
+    // if (options.assets) await shopify.pushAssets(options.theme, program.onlinestore);
+    if (options.redirects) await shopify.pushRedirects(program.outputDir);
+    if (options.scripttags) await shopify.pushScriptTags(program.outputDir);
+    // console.log(res);
+    // for (const asset of res.assets || []) {
+    //     console.log(`${asset.key}`);
+    // }
+}
+
 program
     .version('1.0');
 
@@ -47,6 +58,13 @@ program
     .option('--no-redirects', 'disable pulling redirects', false)
     .option('--no-scripttags', 'disable pulling scripts', false)
     .action(pull);
+
+program
+    .command('push')
+    .option('--no-assets', 'disable pulling assets', false)
+    .option('--no-redirects', 'disable pulling redirects', false)
+    .option('--no-scripttags', 'disable pulling scripts', false)
+    .action(push);
 
 if (process.argv.indexOf("--debug") === -1) console.debug = function () {};
 if (process.argv.indexOf("--verbose") === -1 && process.argv.indexOf("--debug") === -1) console.info = function () {};
