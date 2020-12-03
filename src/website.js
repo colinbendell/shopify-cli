@@ -23,21 +23,13 @@ async function pull(options) {
     if (options.assets) await shopify.pullAssets(options.theme, program.onlinestore);
     if (options.redirects) await shopify.pullRedirects(program.outputDir);
     if (options.scripttags) await shopify.pullScriptTags(program.outputDir);
-    // console.log(res);
-    // for (const asset of res.assets || []) {
-    //     console.log(`${asset.key}`);
-    // }
 }
 
 async function push(options) {
     const shopify = init();
-    // if (options.assets) await shopify.pushAssets(options.theme, program.onlinestore);
+    if (options.assets) await shopify.pushAssets(options.theme, program.onlinestore);
     if (options.redirects) await shopify.pushRedirects(program.outputDir);
     if (options.scripttags) await shopify.pushScriptTags(program.outputDir);
-    // console.log(res);
-    // for (const asset of res.assets || []) {
-    //     console.log(`${asset.key}`);
-    // }
 }
 
 program

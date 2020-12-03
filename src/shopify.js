@@ -3,6 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { fetch } = require('fetch-h2');
 const ShopifyAPI = require('./shopify-api');
+const {getFiles, md5File} = require('./utils');
 
 class Shopify {
     constructor(auth) {
@@ -50,10 +51,10 @@ class Shopify {
             await Promise.all(data.assets.map(async asset => {
                 const filename = path.join(destDir, asset.key);
 
+                // API optimization
                 if (!force && fs.existsSync(filename)) {
-
                     //skip if the checksums aren't any different from remote and local files
-                    if (asset.checksum && asset.checksum === this.#md5File(filename)) {
+                    if (asset.checksum && asset.checksum === await md5File(filename)) {
                         console.debug(`SKIP: ${filename}`);
                         return;
                     }
@@ -77,8 +78,68 @@ class Shopify {
                     }
                 }
 
+                //TODO: delete local
+
             }))
         }
+        return data;
+    }
+
+    async pushAssets(themeName = null, destDir = "./shopify", force = false) {
+        const theme = await this.#getThemeID(themeName);
+        if (!theme || !theme.id) return [];
+
+        const data = await this.shopifyAPI.getAssets(theme.id);
+        // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
+        const knownDirs = new Set(["assets","layout","sections","templates","config","locales","snippets"]);
+        data.assets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
+
+        const localFiles = new Set();
+        for (const baseDir of knownDirs) {
+            for await (const file of getFiles(path.join(destDir, baseDir))) {
+                localFiles.add(path.relative(destDir, file));
+            }
+        }
+
+        const deletePaths = new Set();
+
+        // this loop inspection is opposite the other ones. should iterate over the local files not the remote files
+        for (const asset of data.assets) {
+            const filename = path.join(destDir, asset.key);
+
+            if (localFiles.has(asset.key)) {
+                // API optimization
+                if (!force && fs.existsSync(filename)) {
+                    //skip if the checksums aren't any different from remote and local files
+                    if (asset.checksum && asset.checksum === await md5File(filename)) {
+                        localFiles.delete(asset.key);
+                        continue;
+                    }
+                    //skip if the local file has the same byte size and the modified date locally is > the remote update date
+                    const stats = fs.statSync(filename);
+                    if (stats.size === asset.size && Date.parse(stats.mtime) >= Date.parse(asset.updated_at)) {
+                        localFiles.delete(asset.key);
+                        continue;
+                    }
+                }
+            }
+            else {
+                localFiles.delete(asset.key);
+                deletePaths.set(asset.key);
+            }
+        }
+
+        // Create & Updates
+        await Promise.all([...localFiles.values()].map(async r => {
+            console.log(`UPDATE: ${r}`)
+            // await this.shopifyAPI.updateAsset(theme.id, r.id, r.path, r.target);
+        }));
+        // Deletes
+        await Promise.all([...deletePaths.values()].map(async r => {
+            console.log(r);
+            //await this.shopifyAPI.deleteAssets(theme.id, r);
+        }));
+
         return data;
     }
 
