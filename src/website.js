@@ -37,9 +37,10 @@ async function publish(options) {
     await shopify.publishTheme(options.theme);
 }
 
-async function init(options) {
+async function initTheme(theme, options) {
     const shopify = init();
-    await shopify.initTheme(options.theme);
+    console.log('init');
+    await shopify.initTheme(theme);
 }
 
 program
@@ -75,7 +76,7 @@ program
 program
     .command('init <theme>')
     .description('init a new theme')
-    .action(init);
+    .action(initTheme);
 
 program
     .command('publish <theme>')

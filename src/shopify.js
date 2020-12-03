@@ -57,10 +57,10 @@ class Shopify {
         if (!themeName) return;
 
         const theme = await this.#getThemeID(themeName);
-        if (theme || theme.id) return;
+        if (theme) return;
 
-        console.log(`CREATE Theme: ${theme.name}`);
-        await this.shopifyAPI.createTheme(theme.name, 'unpublished', src)
+        console.log(`CREATE Theme: ${themeName}`);
+        await this.shopifyAPI.createTheme(themeName, 'unpublished', src)
     }
 
     async pullAssets(themeName = null, destDir = "./shopify", save = true, force = false) {
