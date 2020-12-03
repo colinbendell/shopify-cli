@@ -37,15 +37,6 @@ class Shopify {
         return fs.readFileSync(filename, "utf-8");
     }
 
-    async #md5File(filename) {
-        return new Promise(resolve => {
-            const hash = crypto.createHash('md5');
-            fs.createReadStream(filename)
-                .on('data', data => hash.update(data))
-                .on('end', () => resolve(hash.digest('hex')));
-        });
-    }
-
     async list() {
         return this.shopifyAPI.getThemes();
     }
