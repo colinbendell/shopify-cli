@@ -87,7 +87,7 @@ class ShopifyAPI {
         }
         else if (res.status >= 400) {
             console.error(`${method} ${path} (${res.headers.get('status') || res.status + " " + res.statusText})`);
-            console.error(Object.fromEntries(res.headers));
+            console.error(await res.text());
             throw new Error(`${method} ${path} (${res.headers.get('status') || res.status + " " + res.statusText})`)
         }
         else if (res.status === 302) {
@@ -245,6 +245,33 @@ class ShopifyAPI {
 
     async deleteScriptTags(scriptTagID) {
         return await this.#delete(`/admin/api/2020-10/script_tags/${scriptTagID}.json`);
+    }
+
+    //
+    // Pages
+    //
+
+    async getPages(minPageID = 0) {
+        return await this.#get(`/admin/api/2020-10/pages.json?limit=250${minPageID >0 ? "&since_id=" + minPageID : ""}`)
+    }
+
+    async getPagesCount() {
+        return await this.#get(`/admin/api/2020-10/pages/count.json`)
+    }
+
+    async getPage(pageID) {
+        return await this.#get(`/admin/api/2020-10/pages/${pageID}.json`);
+    }
+
+    async createPage(page) {
+        return await this.#post(`/admin/api/2020-10/pages.json`, {page});
+    }
+
+    async updatePage(pageID, page) {
+        return await this.#put(`/admin/api/2020-10/pages/${pageID}.json`, {page});
+    }
+    async deletePage(pageID) {
+        return await this.#delete(`/admin/api/2020-10/pages/${pageID}.json`);
     }
 
 }

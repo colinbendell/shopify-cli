@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const { fetch } = require('fetch-h2');
 const ShopifyAPI = require('./shopify-api');
 const {getFiles, md5File} = require('./utils');
@@ -14,8 +13,7 @@ class Shopify {
         const res = await this.shopifyAPI.getThemes();
 
         //TODO: normalize name?
-        const theme = res.themes.filter(t => (!name && t.role === 'main') || t.name === name)[0];
-        return theme;
+        return res.themes.filter(t => (!name && t.role === 'main') || t.name === name)[0];
     }
 
     async #saveFile(filename, data) {
@@ -80,7 +78,7 @@ class Shopify {
         const theme = await this.#getThemeID(themeName);
         if (!theme || !theme.id) return [];
 
-        const assets = await this.getAssets(theme.id);
+        const assets = await this.#getAssets(theme.id);
         if (save) {
             await Promise.all(assets.map(async asset => {
                 const filename = path.join(destDir, asset.key);
@@ -94,7 +92,7 @@ class Shopify {
                     }
                     //skip if the local file has the same byte size and the modified date locally is > the remote update date
                     const stats = fs.statSync(filename);
-                    if (stats.size === asset.size && Date.parse(stats.mtime) >= Date.parse(asset.updated_at)) {
+                    if (stats.size === asset.size && stats.mtime.getTime() >= Date.parse(asset.updated_at)) {
                         console.debug(`SKIP: ${filename}`);
                         return;
                     }
@@ -108,7 +106,7 @@ class Shopify {
                 else {
                     const detail = await this.shopifyAPI.getAsset(theme.id, asset.key);
                     if (detail && detail.asset && detail.asset.value) {
-                        await this.#saveFile(filename, detail.asset.value);
+                        await this.#saveFile(filename, detail.asset.value.replace(/\\\//g, "/"));
                     }
                 }
 
@@ -123,7 +121,7 @@ class Shopify {
         const theme = await this.#getThemeID(themeName);
         if (!theme || !theme.id) return [];
 
-        const assets = await this.getAssets(theme.id);
+        const assets = await this.#getAssets(theme.id);
         // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
         const knownDirs = new Set(["assets","layout","sections","templates","config","locales","snippets"]);
         assets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
@@ -151,7 +149,7 @@ class Shopify {
                     }
                     //skip if the local file has the same byte size and the modified date locally is > the remote update date
                     const stats = fs.statSync(filename);
-                    if (stats.size === asset.size && Date.parse(stats.mtime) >= Date.parse(asset.updated_at)) {
+                    if (stats.size === asset.size && stats.mtime.getTime() >= Date.parse(asset.updated_at)) {
                         localFiles.delete(asset.key);
                         continue;
                     }
@@ -186,7 +184,9 @@ class Shopify {
             const maxID = Math.max(0, ...redirects.map(r => r.id));
             const data = await this.shopifyAPI.getRedirects(maxID);
             redirects.push(...data.redirects);
-            if (count === null) count = redirects.length < 250 ? redirects.length : (await this.shopifyAPI.getRedirectsCount()).count;
+            if (count === null) {
+                count = redirects.length < 250 ? redirects.length : (await this.shopifyAPI.getRedirectsCount()).count;
+            }
         }
         return redirects;
     }
@@ -213,6 +213,8 @@ class Shopify {
         for (const line of csvData) {
             if (!line || !line.startsWith('/')) continue; // skip empty lines or the first row;
             const [path, target] = line.split(',');
+            if (!path || !target) continue;
+
             if (originalPaths.has(path)) {
                 const detail = originalPaths.get(path);
                 if (detail.target !== target) {
@@ -309,6 +311,128 @@ class Shopify {
             await this.shopifyAPI.deleteScriptTags(s.id);
         }));
         return csvData;
+    }
+
+    async getPages() {
+        let count = null;
+        const pages = [];
+        while (count === null || pages.length < count) {
+            const maxID = Math.max(0, ...pages.map(r => r.id));
+            const data = await this.shopifyAPI.getPages(maxID)
+            pages.push(...data.pages);
+            if (count === null) count = pages.length < 250 ? pages.length : (await this.shopifyAPI.getPagesCount()).count;
+        }
+        return pages;
+    }
+
+    async pullPages(destDir = "./shopify") {
+        const pagesDir = path.join(destDir, "pages");
+        const pagesDraftDir = path.join(pagesDir, "drafts");
+
+        const remotePages = await this.getPages();
+
+        for (const page of remotePages) {
+            const handle = page.handle;
+            const html = page.body_html;
+            const filename = path.join(page.published_at ? pagesDir : pagesDraftDir, handle);
+            delete page.id;
+            delete page.handle;
+            delete page.shop_id;
+            delete page.admin_graphql_api_id;
+            page.body_html = {file: `${handle}.html`};
+            console.log("SAVING: ${filename}.html");
+            await this.#saveFile(filename + ".json", JSON.stringify(page, null, 2));
+            await this.#saveFile(filename + ".html", html);
+        }
+        //TODO: delete
+    }
+
+    async pushPages(destDir = "./shopify") {
+        const pagesDir = path.join(destDir, "pages");
+        const pagesDraftDir = path.join(pagesDir, "drafts");
+
+        const remotePages = await this.getPages();
+        const readPageFile = (file) => {
+            if (!fs.existsSync(file)) return;
+            const d = this.#readFile(file);
+            const data = JSON.parse(d);
+            if (data.body_html && data.body_html.file) {
+                data.body_html = this.#readFile(path.join(path.dirname(file), data.body_html.file));
+            }
+            return data;
+        }
+
+        const isSame = (a, b) => {
+            const left = Object.assign({}, a);
+            delete left.id;
+            delete left.shop_id;
+            delete left.admin_graphql_api_id;
+            delete left.created_at;
+            delete left.updated_at;
+            delete left.published_at;
+
+            const right = Object.assign({}, b);
+            delete right.id;
+            delete right.shop_id;
+            delete right.admin_graphql_api_id;
+            delete right.created_at;
+            delete right.updated_at;
+            delete right.published_at;
+
+            return JSON.stringify(left, Object.keys(left).sort()) === JSON.stringify(right, Object.keys(right).sort());
+        }
+
+        const localFiles = new Set();
+        for await (const file of getFiles(pagesDir)) {
+            if (!file.endsWith(".json")) continue; // only look for the .json files (implying the .html files)
+            localFiles.add(path.relative(pagesDir, file).replace(/\.json$/,""));
+        }
+
+        const updatePage = new Set();
+        const deletePages = new Set();
+
+        for (const page of remotePages) {
+            const handle = page.handle;
+            const draftHandle = path.join("drafts", handle);
+
+            if (localFiles.has(handle) || localFiles.has(draftHandle)) {
+                const detail = readPageFile(path.join(pagesDir, handle + ".json")) || readPageFile(path.join(pagesDraftDir, handle + ".json"));
+
+                //if the file exists in both drafts and published, we bias to the published entry
+                detail.published = !localFiles.has(draftHandle) || localFiles.has(handle);
+                if (!detail.published) delete detail.published_at; // not enough just to say it is not published
+                detail.handle = handle;
+                detail.id = page.id;
+                page.published = (!!page.published_at);
+
+                if (!isSame(page, detail)) {
+                    updatePage.add(detail);
+                }
+                localFiles.delete(handle);
+                localFiles.delete(draftHandle);
+            }
+            else {
+                deletePages.add(page);
+            }
+        }
+        // Creates
+        await Promise.all([...localFiles].map(async file => {
+            const page = readPageFile(path.join(pagesDir, file + ".json"));
+            page.published = file.startsWith("drafts");
+            page.handle = file.replace("drafts/", "");
+            console.log(`CREATE pages/${file}`);
+            await this.shopifyAPI.createPage(page);
+        }));
+        // Updates
+        await Promise.all([...updatePage].map(async file => {
+            console.log(`UPDATE pages/${file.handle})`);
+            await this.shopifyAPI.updatePage(file.id, file);
+        }));
+        // Deletes
+        await Promise.all([...deletePages].map(async file => {
+            console.log(`DELETE pages/${file.handle}`);
+            await this.shopifyAPI.deletePage(file.id);
+        }));
     }
 }
 

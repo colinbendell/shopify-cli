@@ -23,6 +23,7 @@ async function pull(options) {
     if (options.assets) await shopify.pullAssets(options.theme, program.outputDir);
     if (options.redirects) await shopify.pullRedirects(program.outputDir);
     if (options.scripttags) await shopify.pullScriptTags(program.outputDir);
+    if (options.pages) await shopify.pullPages(program.outputDir);
 }
 
 async function push(options) {
@@ -30,6 +31,7 @@ async function push(options) {
     if (options.assets) await shopify.pushAssets(options.theme, program.outputDir);
     if (options.redirects) await shopify.pushRedirects(program.outputDir);
     if (options.scripttags) await shopify.pushScriptTags(program.outputDir);
+    if (options.pages) await shopify.pushPages(program.outputDir);
 }
 
 async function publish(options) {
@@ -63,6 +65,7 @@ program
     .option('--no-assets', 'disable pulling assets', false)
     .option('--no-redirects', 'disable pulling redirects', false)
     .option('--no-scripttags', 'disable pulling scripts', false)
+    .option('--no-pages', 'disable pulling pages', false)
     .action(pull);
 
 program
@@ -73,6 +76,7 @@ program
     .option('--no-assets', 'disable pushing assets', false)
     .option('--no-redirects', 'disable pushing redirects', false)
     .option('--no-scripttags', 'disable pushing scripts', false)
+    .option('--no-pages', 'disable pushing pages', false)
     .action(push);
 
 program
