@@ -52,7 +52,7 @@ program
 program
     .option('--debug', 'enable debug', false)
     .option('--verbose', 'enable verbose', false)
-    .option('--outputDir <dir>', 'location to save the store files', "./shopify");
+    .option('--outputDir <dir>', 'location to save the store files', "./");
 
 program
     .command('list')
