@@ -4,6 +4,10 @@ const { fetch } = require('fetch-h2');
 const ShopifyAPI = require('./shopify-api');
 const {getFiles, md5File} = require('./utils');
 
+const PAGES_OBJECT_CLEANUP = ["id", "handle", "shop_id", "admin_graphql_api_id"];
+const PAGES_OBJECT_CLEANUP_EXT = [...PAGES_OBJECT_CLEANUP, "created_at", "updated_at", "deleted_at"];
+
+
 class Shopify {
     constructor(auth) {
         this.shopifyAPI = new ShopifyAPI(auth);
@@ -202,6 +206,7 @@ class Shopify {
 
     async pushRedirects(destDir = "./shopify") {
         const data = await this.getRedirects();
+        console.log(`SAVING: redirects.csv`);
         const originalPaths = new Map(data.map(r => [r.path, r]));
 
         const updatePaths = new Map();
@@ -260,6 +265,8 @@ class Shopify {
 
     async pullScriptTags(destDir = "./shopify") {
         const scripts = await this.getScriptTags();
+        console.log(`SAVING: scripts.csv`);
+
         const filename = path.join(destDir, "scripts.csv");
         const csvData = ["src,event,scope"];
         //TODO: .replace(",", "%2C")
@@ -313,6 +320,19 @@ class Shopify {
         return csvData;
     }
 
+    static cleanObject(obj, keys=["id"]) {
+        for (const k of keys) {
+            delete obj[k];
+        }
+        return obj;
+    }
+
+    static isSame = (a, b, ignoreProperties=[]) => {
+        const left = Shopify.cleanObject(Object.assign({}, a));
+        const right = Shopify.cleanObject(Object.assign({}, a));
+        return JSON.stringify(left, Object.keys(left).sort()) === JSON.stringify(right, Object.keys(right).sort());
+    }
+
     async getPages() {
         let count = null;
         const pages = [];
@@ -330,17 +350,16 @@ class Shopify {
         const pagesDraftDir = path.join(pagesDir, "drafts");
 
         const remotePages = await this.getPages();
+        console.log(`SAVING: pages/*`)
 
         for (const page of remotePages) {
             const handle = page.handle;
             const html = page.body_html;
             const filename = path.join(page.published_at ? pagesDir : pagesDraftDir, handle);
-            delete page.id;
-            delete page.handle;
-            delete page.shop_id;
-            delete page.admin_graphql_api_id;
+            Shopify.cleanObject(page, PAGES_OBJECT_CLEANUP);
             page.body_html = {file: `${handle}.html`};
-            console.log("SAVING: ${filename}.html");
+
+            console.info(`SAVING: ${page.published_at ? "" : "drafts/"}${handle}.html`);
             await this.#saveFile(filename + ".json", JSON.stringify(page, null, 2));
             await this.#saveFile(filename + ".html", html);
         }
@@ -360,26 +379,6 @@ class Shopify {
                 data.body_html = this.#readFile(path.join(path.dirname(file), data.body_html.file));
             }
             return data;
-        }
-
-        const isSame = (a, b) => {
-            const left = Object.assign({}, a);
-            delete left.id;
-            delete left.shop_id;
-            delete left.admin_graphql_api_id;
-            delete left.created_at;
-            delete left.updated_at;
-            delete left.published_at;
-
-            const right = Object.assign({}, b);
-            delete right.id;
-            delete right.shop_id;
-            delete right.admin_graphql_api_id;
-            delete right.created_at;
-            delete right.updated_at;
-            delete right.published_at;
-
-            return JSON.stringify(left, Object.keys(left).sort()) === JSON.stringify(right, Object.keys(right).sort());
         }
 
         const localFiles = new Set();
@@ -405,7 +404,7 @@ class Shopify {
                 detail.id = page.id;
                 page.published = (!!page.published_at);
 
-                if (!isSame(page, detail)) {
+                if (!Shopify.isSame(page, detail, PAGES_OBJECT_CLEANUP_EXT)) {
                     updatePage.add(detail);
                 }
                 localFiles.delete(handle);
@@ -418,8 +417,12 @@ class Shopify {
         // Creates
         await Promise.all([...localFiles].map(async file => {
             const page = readPageFile(path.join(pagesDir, file + ".json"));
+            //cleanup properties that might have been cloned
+            delete page.id;
+            if (!detail.published) delete page.published_at;
             page.published = file.startsWith("drafts");
             page.handle = file.replace("drafts/", "");
+
             console.log(`CREATE pages/${file}`);
             await this.shopifyAPI.createPage(page);
         }));
@@ -432,6 +435,143 @@ class Shopify {
         await Promise.all([...deletePages].map(async file => {
             console.log(`DELETE pages/${file.handle}`);
             await this.shopifyAPI.deletePage(file.id);
+        }));
+    }
+
+    async getBlogs() {
+        let count = null;
+        const blogs = [];
+        while (count === null || blogs.length < count) {
+            const maxID = Math.max(0, ...blogs.map(r => r.id));
+            const data = await this.shopifyAPI.getBlogs(maxID)
+            blogs.push(...data.blogs);
+            if (count === null) count = blogs.length < 250 ? blogs.length : (await this.shopifyAPI.getBlogsCount()).count;
+        }
+        return blogs;
+    }
+    async getBlogArticles(blogID) {
+        let count = null;
+        const blogArticles = [];
+        while (count === null || blogArticles.length < count) {
+            const maxID = Math.max(0, ...blogArticles.map(r => r.id));
+            const data = await this.shopifyAPI.getBlogArticles(blogID, maxID)
+            blogArticles.push(...data.articles);
+            if (count === null) count = blogArticles.length < 250 ? blogArticles.length : (await this.shopifyAPI.getBlogArticlesCount(blogID)).count;
+        }
+        return blogArticles;
+    }
+
+    async pullBlogArticles(destDir = "./shopify", blog=null) {
+
+        // which blog?
+        if (blog === null) {
+            const blogs = await this.getBlogs();
+            await Promise.all(blogs.map(b => this.pullBlogArticles(destDir, b.id)));
+            return;
+        }
+
+        let blogDetails;
+        if (Number.isInteger(blog)) {
+            blogDetails = (await this.shopifyAPI.getBlog(blog)).blog;
+        }
+        else {
+            const blogs = await this.getBlogs();
+            const blogDetails = blogs.filter(b => b.handle === details)[0];
+            if (!blogDetails) return;
+        }
+        const blogID = blogDetails.id;
+        const blogName = blogDetails.handle;
+        console.log(blogDetails);
+
+        const blogArticlesDir = path.join(destDir, "blogs", blogName);
+        const blogArticlesDraftDir = path.join(blogArticlesDir, "blogs", blogName, "drafts");
+
+        const remoteBlogArticles = await this.getBlogArticles(blogID);
+        console.log(`SAVING: blogArticles/*`)
+
+        for (const blogArticle of remoteBlogArticles) {
+            const handle = blogArticle.handle;
+            const html = blogArticle.body_html || "";
+            const filename = path.join(blogArticle.published_at ? blogArticlesDir : blogArticlesDraftDir, handle);
+            Shopify.cleanObject(blogArticle, PAGES_OBJECT_CLEANUP);
+            blogArticle.body_html = {file: `${handle}.html`};
+
+            console.info(`SAVING: ${blogArticle.published_at ? "" : "drafts/"}${handle}.html`);
+            await this.#saveFile(filename + ".json", JSON.stringify(blogArticle, null, 2));
+            await this.#saveFile(filename + ".html", html);
+        }
+        //TODO: delete
+    }
+
+    async pushBlogArticles(destDir = "./shopify") {
+        const blogArticlesDir = path.join(destDir, "blogArticles");
+        const blogArticlesDraftDir = path.join(blogArticlesDir, "drafts");
+
+        const remoteBlogArticles = await this.getBlogArticles();
+        const readBlogArticleFile = (file) => {
+            if (!fs.existsSync(file)) return;
+            const d = this.#readFile(file);
+            const data = JSON.parse(d);
+            if (data.body_html && data.body_html.file) {
+                data.body_html = this.#readFile(path.join(path.dirname(file), data.body_html.file));
+            }
+            return data;
+        }
+
+        const localFiles = new Set();
+        for await (const file of getFiles(blogArticlesDir)) {
+            if (!file.endsWith(".json")) continue; // only look for the .json files (implying the .html files)
+            localFiles.add(path.relative(blogArticlesDir, file).replace(/\.json$/,""));
+        }
+
+        const updateBlogArticle = new Set();
+        const deleteBlogArticles = new Set();
+
+        for (const blogArticle of remoteBlogArticles) {
+            const handle = blogArticle.handle;
+            const draftHandle = path.join("drafts", handle);
+
+            if (localFiles.has(handle) || localFiles.has(draftHandle)) {
+                const detail = readBlogArticleFile(path.join(blogArticlesDir, handle + ".json")) || readBlogArticleFile(path.join(blogArticlesDraftDir, handle + ".json"));
+
+                //if the file exists in both drafts and published, we bias to the published entry
+                detail.published = !localFiles.has(draftHandle) || localFiles.has(handle);
+                if (!detail.published) delete detail.published_at; // not enough just to say it is not published
+                detail.handle = handle;
+                detail.id = blogArticle.id;
+                blogArticle.published = (!!blogArticle.published_at);
+
+                if (!Shopify.isSame(blogArticle, detail, PAGES_OBJECT_CLEANUP_EXT)) {
+                    updateBlogArticle.add(detail);
+                }
+                localFiles.delete(handle);
+                localFiles.delete(draftHandle);
+            }
+            else {
+                deleteBlogArticles.add(blogArticle);
+            }
+        }
+        // Creates
+        await Promise.all([...localFiles].map(async file => {
+            const blogArticle = readBlogArticleFile(path.join(blogArticlesDir, file + ".json"));
+            //cleanup properties that might have been cloned
+            delete blogArticle.id;
+            if (!detail.published) delete blogArticle.published_at;
+            blogArticle.published = file.startsWith("drafts");
+            blogArticle.handle = file.replace("drafts/", "");
+
+            console.log(`CREATE blogArticles/${file}`);
+            await this.shopifyAPI.createBlogArticle(blogArticle);
+        }));
+        // Updates
+        await Promise.all([...updateBlogArticle].map(async file => {
+            console.log(`UPDATE blogArticles/${file.handle})`);
+            await this.shopifyAPI.updateBlogArticle(file.id, file);
+        }));
+        // Deletes
+        await Promise.all([...deleteBlogArticles].map(async file => {
+            console.log(`DELETE blogArticles/${file.handle}`);
+            await this.shopifyAPI.deleteBlogArticle(file.id);
         }));
     }
 }

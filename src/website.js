@@ -24,6 +24,7 @@ async function pull(options) {
     if (options.redirects) await shopify.pullRedirects(program.outputDir);
     if (options.scripttags) await shopify.pullScriptTags(program.outputDir);
     if (options.pages) await shopify.pullPages(program.outputDir);
+    if (options.blogs) await shopify.pullBlogArticles(program.outputDir);
 }
 
 async function push(options) {
@@ -66,6 +67,7 @@ program
     .option('--no-redirects', 'disable pulling redirects', false)
     .option('--no-scripttags', 'disable pulling scripts', false)
     .option('--no-pages', 'disable pulling pages', false)
+    .option('--no-blogs', 'disable pulling blogs', false)
     .action(pull);
 
 program
@@ -77,6 +79,7 @@ program
     .option('--no-redirects', 'disable pushing redirects', false)
     .option('--no-scripttags', 'disable pushing scripts', false)
     .option('--no-pages', 'disable pushing pages', false)
+    .option('--no-blogs', 'disable pushing blogs', false)
     .action(push);
 
 program

@@ -51,6 +51,8 @@ class ShopifyAPI {
         }
 
         const headers = {
+            // leaving these here to show how nonsensical our APIs are
+            'X-Shopify-Access-Token': this.#password,
             'X-Shopify-Storefront-Access-Token': this.#storefront,
             'Authorization': `Basic ${Buffer.from(this.#key + ":" + this.#password).toString("base64")}`,
             'Accept': '*/*',
@@ -274,6 +276,56 @@ class ShopifyAPI {
         return await this.#delete(`/admin/api/2020-10/pages/${pageID}.json`);
     }
 
+    //
+    // Blogs
+    //
+
+    async getBlogs(minBlogID = 0) {
+        return await this.#get(`/admin/api/2020-10/blogs.json?limit=250${minBlogID >0 ? "&since_id=" + minBlogID : ""}`)
+    }
+
+    async getBlogsCount() {
+        return await this.#get(`/admin/api/2020-10/blogs/count.json`)
+    }
+
+    async getBlog(blogID) {
+        return await this.#get(`/admin/api/2020-10/blogs/${blogID}.json`);
+    }
+
+    async createBlog(blog) {
+        return await this.#post(`/admin/api/2020-10/blogs.json`, {blog});
+    }
+
+    async updateBlog(blogID, blog) {
+        return await this.#put(`/admin/api/2020-10/blogs/${blogID}.json`, {blog});
+    }
+    async deleteBlog(blogID) {
+        return await this.#delete(`/admin/api/2020-10/blogs/${blogID}.json`);
+    }
+
+    //
+    // BlogArticles
+    //
+
+    async getBlogArticles(blogID, minBlogArticleID = 0) {
+        return await this.#get(`/admin/api/2020-10/blogs/${blogID}/articles.json?limit=250${minBlogArticleID >0 ? "&since_id=" + minBlogArticleID : ""}`)
+    }
+
+    async getBlogArticlesCount(blogID) {
+        return await this.#get(`/admin/api/2020-10/blogs/${blogID}/articles/count.json`)
+    }
+
+    async getBlogArticle(blogID, blogArticleID) {
+        return await this.#get(`/admin/api/2020-10/blogs/${blogID}/articles/${blogArticleID}.json`);
+    }
+
+    async createBlogArticle(blogID, article) {
+        return await this.#post(`/admin/api/2020-10/blogs/${blogID}/articles.json`, {article});
+    }
+
+    async updateBlogArticle(blogID, blogArticleID, article) {
+        return await this.#put(`/admin/api/2020-10/blogs/${blogID}/articles/${blogArticleID}.json`, {article});
+    }
 }
 
 module.exports = ShopifyAPI;
