@@ -464,9 +464,9 @@ class Shopify {
     async pullBlogArticles(destDir = "./shopify", blog=null) {
 
         // which blog?
-        if (blog === null) {
+        if (!blog) {
             const blogs = await this.getBlogs();
-            await Promise.all(blogs.map(b => this.pullBlogArticles(destDir, b.id)));
+            await Promise.all(blogs.map(async b => await this.pullBlogArticles(destDir, b.id)));
             return;
         }
 
@@ -476,15 +476,14 @@ class Shopify {
         }
         else {
             const blogs = await this.getBlogs();
-            const blogDetails = blogs.filter(b => b.handle === details)[0];
+            const blogDetails = blogs.filter(b => b.handle === blog)[0];
             if (!blogDetails) return;
         }
         const blogID = blogDetails.id;
         const blogName = blogDetails.handle;
-        console.log(blogDetails);
 
         const blogArticlesDir = path.join(destDir, "blogs", blogName);
-        const blogArticlesDraftDir = path.join(blogArticlesDir, "blogs", blogName, "drafts");
+        const blogArticlesDraftDir = path.join(blogArticlesDir, "drafts");
 
         const remoteBlogArticles = await this.getBlogArticles(blogID);
         console.log(`SAVING: blogArticles/*`)
