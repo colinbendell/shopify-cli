@@ -326,6 +326,9 @@ class ShopifyAPI {
     async updateBlogArticle(blogID, blogArticleID, article) {
         return await this.#put(`/admin/api/2020-10/blogs/${blogID}/articles/${blogArticleID}.json`, {article});
     }
+    async deleteBlogArticle(blogID, blogArticleID) {
+        return await this.#delete(`/admin/api/2020-10/blogs/${blogID}/articles/${blogArticleID}.json`);
+    }
 }
 
 module.exports = ShopifyAPI;

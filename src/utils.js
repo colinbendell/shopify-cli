@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { readdir } = require('fs').promises;
+const { stringify } = require('./stringify');
 
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 Promise.delay = sleep;
@@ -28,8 +29,22 @@ async function* getFiles(dir) {
     }
 }
 
+function cleanObject(obj, keys=["id"]) {
+    for (const k of keys) {
+        delete obj[k];
+    }
+    return obj;
+}
+
+function isSame(a, b, ignoreProperties=[]) {
+    const left = cleanObject(Object.assign({}, a), ignoreProperties);
+    const right = cleanObject(Object.assign({}, b), ignoreProperties);
+    return stringify(left) === stringify(right);
+}
+
 module.exports = {
-    // readDir,
+    cleanObject,
+    isSame,
     getFiles,
     md5File,
     sleep
