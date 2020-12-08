@@ -54,7 +54,7 @@ class ShopifyAPI {
             // leaving these here to show how nonsensical our APIs are
             'X-Shopify-Access-Token': this.#password,
             'X-Shopify-Storefront-Access-Token': this.#storefront,
-            'Authorization': `Basic ${Buffer.from(this.#key + ":" + this.#password).toString("base64")}`,
+            // 'Authorization': `Basic ${Buffer.from(this.#key + ":" + this.#password).toString("base64")}`,
             'Accept': '*/*',
         };
 
