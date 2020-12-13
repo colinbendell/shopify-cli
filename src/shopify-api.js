@@ -3,6 +3,7 @@ const {sleep} = require('./utils');
 const readini = require('./readini');
 
 const CACHE = new Map();
+const API_VERSION = "2021-01";
 class ShopifyAPI {
     constructor(auth = {path: "~/.shopify", section: 'default'}) {
         let ini = readini(process.env.SHOPIFY_RC || auth.path, process.env.SHOPIFY_SECTION || auth.section);
@@ -55,10 +56,10 @@ class ShopifyAPI {
             'X-Shopify-Access-Token': this.#password,
             'X-Shopify-Storefront-Access-Token': this.#storefront,
             // 'Authorization': `Basic ${Buffer.from(this.#key + ":" + this.#password).toString("base64")}`,
-            'Accept': '*/*',
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
         };
 
-        const options = {method, headers};
+        const options = {method, headers, allowForbiddenHeaders: true};
         if (body) {
             options.body = JSON.stringify(body);
             options.headers['Content-Type'] = 'application/json';
@@ -87,9 +88,12 @@ class ShopifyAPI {
             await sleep(1000);
             return await this.#request(method, path, body, maxTTL);
         }
+        else if (res.status === 404) {
+            return null;
+        }
         else if (res.status >= 400) {
             console.error(`${method} ${path} (${res.headers.get('status') || res.status + " " + res.statusText})`);
-            console.error(await res.text());
+            if (res.headers.get('content-length') > 0) console.error(await res.text());
             throw new Error(`${method} ${path} (${res.headers.get('status') || res.status + " " + res.statusText})`)
         }
         else if (res.status === 302) {
@@ -125,10 +129,10 @@ class ShopifyAPI {
     // Themes https://shopify.dev/docs/admin-api/rest/reference/online-store/theme
     //
     async getThemes() {
-        return await this.#get(`/admin/api/2020-10/themes.json`)
+        return await this.#get(`/admin/api/${API_VERSION}/themes.json`)
     }
     async getTheme(themeID) {
-        return await this.#get(`/admin/api/2020-10/themes/${themeID}.json`)
+        return await this.#get(`/admin/api/${API_VERSION}/themes/${themeID}.json`)
     }
     async createTheme(name, role="unpublished", src = null) {
         const data = {
@@ -136,7 +140,7 @@ class ShopifyAPI {
         }
         if (src) data.theme.src = src;
 
-        return await this.#post(`/admin/api/2020-10/themes.json`, data)
+        return await this.#post(`/admin/api/${API_VERSION}/themes.json`, data)
 
     }
     async updateTheme(themeID, name = null, role = null) {
@@ -147,21 +151,24 @@ class ShopifyAPI {
         }
         if (name) data.theme.name = name;
         if (role) data.theme.role = role;
-        return await this.#put(`/admin/api/2020-10/themes/${themeID}.json`, data)
+        return await this.#put(`/admin/api/${API_VERSION}/themes/${themeID}.json`, data)
     }
     async deleteTheme(themeID) {
-        return await this.#delete(`/admin/api/2020-10/themes/${themeID}.json`)
+        return await this.#delete(`/admin/api/${API_VERSION}/themes/${themeID}.json`)
     }
 
     //
     // Assets https://shopify.dev/docs/admin-api/rest/reference/online-store/theme
     //
     async getAssets(themeID) {
-        return await this.#get(`/admin/api/2020-10/themes/${themeID}/assets.json`)
+        return await this.#get(`/admin/api/${API_VERSION}/themes/${themeID}/assets.json`)
     }
 
     async getAsset(themeID, key) {
-        return await this.#get(`/admin/api/2020-10/themes/${themeID}/assets.json?asset[key]=${key}`);
+        return await this.#get(`/admin/api/${API_VERSION}/themes/${themeID}/assets.json?asset[key]=${key}`);
+    }
+    async getAssetVersions(themeID, key) {
+        return await this.#get(`/admin/api/${API_VERSION}/themes/${themeID}/assets/versions?asset[key]=${key}`);
     }
 
     async updateAsset(themeID, key, value, attachment) {
@@ -171,11 +178,11 @@ class ShopifyAPI {
         if (value) data.asset.value = value;
         if (attachment) data.asset.attachment = attachment;
 
-        return await this.#put(`/admin/api/2020-10/themes/${themeID}/assets.json`, data);
+        return await this.#put(`/admin/api/${API_VERSION}/themes/${themeID}/assets.json`, data);
     }
 
     async deleteAsset(themeID, key) {
-        return await this.#delete(`/admin/api/2020-10/themes/${themeID}/assets.json?asset[key]=${key}`);
+        return await this.#delete(`/admin/api/${API_VERSION}/themes/${themeID}/assets.json?asset[key]=${key}`);
     }
 
 
@@ -183,11 +190,11 @@ class ShopifyAPI {
     // Redirects
     //
     async getRedirects(minRedirectID = 0) {
-        return await this.#get(`/admin/api/2020-10/redirects.json?limit=250${minRedirectID >0 ? "&since_id=" + minRedirectID : ""}`)
+        return await this.#get(`/admin/api/${API_VERSION}/redirects.json?limit=250${minRedirectID >0 ? "&since_id=" + minRedirectID : ""}`)
     }
 
     async getRedirectsCount() {
-        return await this.#get(`/admin/api/2020-10/redirects/count.json`)
+        return await this.#get(`/admin/api/${API_VERSION}/redirects/count.json`)
     }
 
     async createRedirect(path, target) {
@@ -197,7 +204,7 @@ class ShopifyAPI {
                 target: target
             }
         }
-        return await this.#post(`/admin/api/2020-10/redirects.json`, data);
+        return await this.#post(`/admin/api/${API_VERSION}/redirects.json`, data);
     }
 
     async updateRedirect(redirectID, path, target) {
@@ -208,11 +215,11 @@ class ShopifyAPI {
         }
         if (target) data.redirect.target = target;
         if (path) data.redirect.path = path;
-        return await this.#put(`/admin/api/2020-10/redirects/${redirectID}.json`, data);
+        return await this.#put(`/admin/api/${API_VERSION}/redirects/${redirectID}.json`, data);
     }
 
     async deleteRedirect(redirectID) {
-        return await this.#delete(`/admin/api/2020-10/redirects/${redirectID}.json`);
+        return await this.#delete(`/admin/api/${API_VERSION}/redirects/${redirectID}.json`);
     }
 
     //
@@ -220,18 +227,18 @@ class ShopifyAPI {
     //
 
     async getScriptTags(minScriptTagID = 0) {
-        return await this.#get(`/admin/api/2020-10/script_tags.json?limit=250${minScriptTagID >0 ? "&since_id=" + minScriptTagID : ""}`)
+        return await this.#get(`/admin/api/${API_VERSION}/script_tags.json?limit=250${minScriptTagID >0 ? "&since_id=" + minScriptTagID : ""}`)
     }
 
     async getScriptTagsCount() {
-        return await this.#get(`/admin/api/2020-10/script_tags/count.json`)
+        return await this.#get(`/admin/api/${API_VERSION}/script_tags/count.json`)
     }
 
     async createScriptTags(src="https://example.com/script.js", event="onload") {
         const data = {
             script_tag: { event, src }
         }
-        return await this.#post(`/admin/api/2020-10/script_tags.json`, data);
+        return await this.#post(`/admin/api/${API_VERSION}/script_tags.json`, data);
     }
 
     async updateScriptTags(scriptTagID, src, event="onload") {
@@ -242,11 +249,11 @@ class ShopifyAPI {
             }
         }
         if (src) data.redirect.src = src;
-        return await this.#put(`/admin/api/2020-10/script_tags/${scriptTagID}.json`, data);
+        return await this.#put(`/admin/api/${API_VERSION}/script_tags/${scriptTagID}.json`, data);
     }
 
     async deleteScriptTags(scriptTagID) {
-        return await this.#delete(`/admin/api/2020-10/script_tags/${scriptTagID}.json`);
+        return await this.#delete(`/admin/api/${API_VERSION}/script_tags/${scriptTagID}.json`);
     }
 
     //
@@ -254,26 +261,26 @@ class ShopifyAPI {
     //
 
     async getPages(minPageID = 0) {
-        return await this.#get(`/admin/api/2020-10/pages.json?limit=250${minPageID >0 ? "&since_id=" + minPageID : ""}`)
+        return await this.#get(`/admin/api/${API_VERSION}/pages.json?limit=250${minPageID >0 ? "&since_id=" + minPageID : ""}`)
     }
 
     async getPagesCount() {
-        return await this.#get(`/admin/api/2020-10/pages/count.json`)
+        return await this.#get(`/admin/api/${API_VERSION}/pages/count.json`)
     }
 
     async getPage(pageID) {
-        return await this.#get(`/admin/api/2020-10/pages/${pageID}.json`);
+        return await this.#get(`/admin/api/${API_VERSION}/pages/${pageID}.json`);
     }
 
     async createPage(page) {
-        return await this.#post(`/admin/api/2020-10/pages.json`, {page});
+        return await this.#post(`/admin/api/${API_VERSION}/pages.json`, {page});
     }
 
     async updatePage(pageID, page) {
-        return await this.#put(`/admin/api/2020-10/pages/${pageID}.json`, {page});
+        return await this.#put(`/admin/api/${API_VERSION}/pages/${pageID}.json`, {page});
     }
     async deletePage(pageID) {
-        return await this.#delete(`/admin/api/2020-10/pages/${pageID}.json`);
+        return await this.#delete(`/admin/api/${API_VERSION}/pages/${pageID}.json`);
     }
 
     //
@@ -281,26 +288,26 @@ class ShopifyAPI {
     //
 
     async getBlogs(minBlogID = 0) {
-        return await this.#get(`/admin/api/2020-10/blogs.json?limit=250${minBlogID >0 ? "&since_id=" + minBlogID : ""}`)
+        return await this.#get(`/admin/api/${API_VERSION}/blogs.json?limit=250${minBlogID >0 ? "&since_id=" + minBlogID : ""}`)
     }
 
     async getBlogsCount() {
-        return await this.#get(`/admin/api/2020-10/blogs/count.json`)
+        return await this.#get(`/admin/api/${API_VERSION}/blogs/count.json`)
     }
 
     async getBlog(blogID) {
-        return await this.#get(`/admin/api/2020-10/blogs/${blogID}.json`);
+        return await this.#get(`/admin/api/${API_VERSION}/blogs/${blogID}.json`);
     }
 
     async createBlog(blog) {
-        return await this.#post(`/admin/api/2020-10/blogs.json`, {blog});
+        return await this.#post(`/admin/api/${API_VERSION}/blogs.json`, {blog});
     }
 
     async updateBlog(blogID, blog) {
-        return await this.#put(`/admin/api/2020-10/blogs/${blogID}.json`, {blog});
+        return await this.#put(`/admin/api/${API_VERSION}/blogs/${blogID}.json`, {blog});
     }
     async deleteBlog(blogID) {
-        return await this.#delete(`/admin/api/2020-10/blogs/${blogID}.json`);
+        return await this.#delete(`/admin/api/${API_VERSION}/blogs/${blogID}.json`);
     }
 
     //
@@ -308,26 +315,53 @@ class ShopifyAPI {
     //
 
     async getBlogArticles(blogID, minBlogArticleID = 0) {
-        return await this.#get(`/admin/api/2020-10/blogs/${blogID}/articles.json?limit=250${minBlogArticleID >0 ? "&since_id=" + minBlogArticleID : ""}`)
+        return await this.#get(`/admin/api/${API_VERSION}/blogs/${blogID}/articles.json?limit=250${minBlogArticleID >0 ? "&since_id=" + minBlogArticleID : ""}`)
     }
 
     async getBlogArticlesCount(blogID) {
-        return await this.#get(`/admin/api/2020-10/blogs/${blogID}/articles/count.json`)
+        return await this.#get(`/admin/api/${API_VERSION}/blogs/${blogID}/articles/count.json`)
     }
 
     async getBlogArticle(blogID, blogArticleID) {
-        return await this.#get(`/admin/api/2020-10/blogs/${blogID}/articles/${blogArticleID}.json`);
+        return await this.#get(`/admin/api/${API_VERSION}/blogs/${blogID}/articles/${blogArticleID}.json`);
     }
 
     async createBlogArticle(blogID, article) {
-        return await this.#post(`/admin/api/2020-10/blogs/${blogID}/articles.json`, {article});
+        return await this.#post(`/admin/api/${API_VERSION}/blogs/${blogID}/articles.json`, {article});
     }
 
     async updateBlogArticle(blogID, blogArticleID, article) {
-        return await this.#put(`/admin/api/2020-10/blogs/${blogID}/articles/${blogArticleID}.json`, {article});
+        return await this.#put(`/admin/api/${API_VERSION}/blogs/${blogID}/articles/${blogArticleID}.json`, {article});
     }
     async deleteBlogArticle(blogID, blogArticleID) {
-        return await this.#delete(`/admin/api/2020-10/blogs/${blogID}/articles/${blogArticleID}.json`);
+        return await this.#delete(`/admin/api/${API_VERSION}/blogs/${blogID}/articles/${blogArticleID}.json`);
+    }
+
+    //
+    // Menus
+    //
+
+    async getMenus(minMenuID = 0) {
+        return await this.#get(`/admin/api/${API_VERSION}/menus.json?limit=250${minMenuID >0 ? "&since_id=" + minMenuID : ""}`)
+    }
+
+    async getMenusCount() {
+        return await this.#get(`/admin/api/${API_VERSION}/menus/count.json`)
+    }
+
+    async getMenu(menuID) {
+        return await this.#get(`/admin/api/${API_VERSION}/menus/${menuID}.json`);
+    }
+
+    async createMenu(menu) {
+        return await this.#post(`/admin/api/${API_VERSION}/menus.json`, {menu});
+    }
+
+    async updateMenu(menuID, menu) {
+        return await this.#put(`/admin/api/${API_VERSION}/menus/${menuID}.json`, {menu});
+    }
+    async deleteMenu(menuID) {
+        return await this.#delete(`/admin/api/${API_VERSION}/menus/${menuID}.json`);
     }
 }
 
