@@ -58,6 +58,17 @@ class ShopifyAPI {
             // 'Authorization': `Basic ${Buffer.from(this.#key + ":" + this.#password).toString("base64")}`,
             'Accept': 'application/json, text/javascript, */*; q=0.01',
         };
+        if (process.env.SHOPIFY_ADMIN_COOKIE) {
+            delete headers['X-Shopify-Access-Token'];
+            delete headers['X-Shopify-Storefront-Access-Token'];
+            headers['x-requested-with'] = 'XMLHttpRequest';
+            headers['user-agent'] = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36';
+            headers['sec-fetch-site'] = 'same-origin';
+            headers['sec-fetch-mode'] = 'cors';
+            headers['sec-fetch-dest'] = 'empty';
+            headers['accept-language'] = 'en-US,en;q=0.9,pl;q=0.8';
+            headers['cookie'] = process.env.SHOPIFY_ADMIN_COOKIE;
+        }
 
         const options = {method, headers, allowForbiddenHeaders: true};
         if (body) {
