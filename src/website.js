@@ -104,6 +104,7 @@ async function pull(options) {
     if (options.assets) await shopify.pullAssets(options.theme, program.outputDir, options.force, options.dryrun);
     if (options.redirects) await shopify.pullRedirects(program.outputDir);
     if (options.scripttags) await shopify.pullScriptTags(program.outputDir);
+    if (options.menus) await shopify.pullMenus(program.outputDir);
     if (options.pages) await shopify.pullPages(program.outputDir);
     if (options.blogs) await shopify.pullBlogArticles(program.outputDir);
 }
