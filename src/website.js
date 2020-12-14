@@ -15,61 +15,42 @@ async function list(theme, options) {
     const shopify = init();
     if (!theme) {
         const res = await shopify.listThemes();
-        for (const theme of res.themes || []) {
-            console.log(`${theme.name}${theme.role === 'main' ? " (main)" : ""}`);
+        for (const theme of res || []) {
+            console.log(`${theme.handle || theme.name}${theme.role === 'main' ? " (main)" : ""}`);
         }
     }
     else {
         const assets = await shopify.listAssets(theme, options.changes);
+        const menus = await shopify.listMenus();
         const pages = await shopify.listPages();
         const blogArticles = await shopify.listBlogArticles();
         const scriptTags = await shopify.listScriptTags();
-        const menus = await shopify.listMenus();
+        // const redirects = await shopify.listRedirects();
+
         if (options.changes) {
             const changeSet = new Map();
-            // const d = new Map();
+            changeSet.add = function(updatedAt, value) {
+                const valueDate = new Date(Date.parse(updatedAt) || 0).toISOString();
+                if (!this.has(valueDate)) this.set(valueDate, []);
+                this.get(valueDate).push(value);
+            }
 
             for (const asset of assets || []) {
                 if (!asset.versions || asset.versions.length === 0) {
                     // use updated_at not created_at since @v created_at might not available
-                    const createdDate = new Date(asset.updated_at).toISOString();
-                    if (!changeSet.has(createdDate)) changeSet.set(createdDate, []);
-                    changeSet.get(createdDate).push(asset.key);
+                    changeSet.add(asset.updated_at, asset.key);
                 }
-                for (const version of asset.versions || []) {
-                    const versionDate = new Date(Date.parse(version.created_at) || 0).toISOString();
-                    // if (!d.has(versionDate)) d.set(versionDate, []);
-                    // d.get(versionDate).push(asset.key + "@" + version.version);
-                    if (!changeSet.has(versionDate)) changeSet.set(versionDate, []);
-                    changeSet.get(versionDate).push(asset.key + "@" + version.version);
-                }
+                asset.versions?.forEach(item => changeSet.add(item.created_at, asset.key + "@" + item.version));
             }
-            for (const page of pages || []) {
-                // use updated_at not created_at since @v created_at might not available
-                const createdDate = new Date(page.updated_at).toISOString();
-                if (!changeSet.has(createdDate)) changeSet.set(createdDate, []);
-                changeSet.get(createdDate).push(page.key + ".html");
-            }
-            for (const blog of blogArticles || []) {
-                for (const article of blog.articles || []) {
-                    // use updated_at not created_at since @v created_at might not available
-                    const createdDate = new Date(article.updated_at).toISOString();
-                    if (!changeSet.has(createdDate)) changeSet.set(createdDate, []);
-                    changeSet.get(createdDate).push(path.join(blog.key, article.key + ".html"));
-                }
-            }
-            for (const script of scriptTags || []) {
-                // use updated_at not created_at since @v created_at might not available
-                const createdDate = new Date(script.updated_at).toISOString();
-                if (!changeSet.has(createdDate)) changeSet.set(createdDate, []);
-                changeSet.get(createdDate).push(script.src);
-            }
-            for (const menu of menus || []) {
-                // use updated_at not created_at since @v created_at might not available
-                const createdDate = new Date(menu.updated_at).toISOString();
-                if (!changeSet.has(createdDate)) changeSet.set(createdDate, []);
-                changeSet.get(createdDate).push(menu.key);
-            }
+            menus.forEach(item => changeSet.add(item.updated_at, item.key));
+            pages.forEach(item => changeSet.add(item.updated_at, item.key + ".html"));
+            blogArticles.forEach(blog => {
+                blog.articles?.forEach(item => changeSet.add(item.updated_at, path.join(blog.key, item.key + ".html")));
+            });
+            scriptTags.forEach(item => changeSet.add(item.updated_at, item.src));
+            // redirect.forEach(item => changeSet.add(item.updated_at, item.path));
+
+            // reduce the changesets with near neighbours
             let prev = 0;
             for (const curr of [...changeSet.keys()].sort()) {
                 if (Date.parse(curr) - Date.parse(prev) <= 60*1000) {
@@ -85,16 +66,20 @@ async function list(theme, options) {
                 }
                 prev = curr;
             }
-            // console.log(new Map([...d.entries()].sort()));
-            console.log(new Map([...changeSet.entries()].sort()));
-            // for (const changeDate of [...d.keys()].sort()) {
-            //     console.log(`${changeDate}`);
-            // }
+            if (options.details) {
+                console.log(Object.fromEntries([...changeSet.entries()].sort()));
+            }
+            else {
+                [...changeSet.keys()].sort().forEach(k => console.log(k));
+            }
         }
         else {
-            for (const asset of assets || []) {
-                console.log(`${asset.key}`);
-            }
+            assets.forEach(item => console.log(`${item.key}`));
+            menus.forEach(item => console.log(`${item.key}`));
+            pages.forEach(item => console.log(`${item.key}.html`));
+            blogArticles.forEach(blog => pages.forEach(item => console.log(`${blog.key}/${item.key}.html`)));
+            scriptTags.forEach(item => console.log(`${item.src}`));
+            // redirects.forEach(item => console.log(`${item.path}`));
         }
     }
 }
@@ -139,6 +124,7 @@ program
 program
     .command('list [theme]')
     .option('--changes', 'show unique change dates', false)
+    .option('--details', 'expand the output to include details', false)
     .action(list);
 
 program
