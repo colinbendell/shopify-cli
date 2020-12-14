@@ -21,7 +21,7 @@ async function list(theme, options) {
     }
     else {
         const assets = await shopify.listAssets(theme, options.changes);
-        const menus = await shopify.listMenus();
+        const menus = await shopify.listMenus().catch(e => {}) || [];
         const pages = await shopify.listPages();
         const blogArticles = await shopify.listBlogArticles();
         const scriptTags = await shopify.listScriptTags();
