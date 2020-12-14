@@ -91,7 +91,7 @@ class Shopify {
         const res = await this.listThemes();
 
         //TODO: normalize name?
-        return res.filter(t => (!name && t.role === 'main') || t.handle === Shopify.handleName(name))[0];
+        return res.filter(t => (!name && t.role === 'main') || name && t.handle === Shopify.handleName(name))[0];
     }
 
     async publishTheme(themeName) {
@@ -113,17 +113,6 @@ class Shopify {
 
         console.log(`CREATE Theme: ${themeName}`);
         await this.shopifyAPI.createTheme(themeName, 'unpublished', src)
-    }
-
-    async #getAssets(themeID) {
-        const data = await this.shopifyAPI.getAssets(themeID)
-        const assetsMap = new Map(data.assets.map(a => [a.key, a]));
-        for (const key of assetsMap.keys()) {
-            if (assetsMap.has(key + ".liquid")) {
-                assetsMap.delete(key);
-            }
-        }
-        return [...assetsMap.values()];
     }
 
     async #isAssetSame(localFilename, remoteCheckSum, remoteLastModified, remoteSize) {
@@ -150,23 +139,55 @@ class Shopify {
 
     async listAssets(themeName, includeVersions = false) {
         const theme = await this.#getThemeID(themeName);
-        const remoteAssets = await this.#getAssets(theme.id);
+        if (!theme || !theme.id) return;
+
+        const data = await this.shopifyAPI.getAssets(theme.id);
+
+        const assetsMap = new Map(data.assets.map(a => [a.key, a]));
+        for (const key of assetsMap.keys()) {
+            if (assetsMap.has(key + ".liquid")) {
+                assetsMap.delete(key);
+            }
+        }
+        theme.assets = [...assetsMap.values()];
+
         if (includeVersions) {
-            await Promise.all(remoteAssets.map(async asset => {
+            await Promise.all(theme.assets.map(async asset => {
                 const v = await this.shopifyAPI.getAssetVersions(theme.id, asset.key).catch(e => console.debug(e));
                 if (v && v.versions && v.versions.length > 0) {
                     asset.versions = v.versions;
                 }
             }));
         }
-        return remoteAssets;
+        return theme;
     }
 
-    async pullAssets(themeName = null, destDir = "./shopify", force = false, dryrun=false) {
-        const theme = await this.#getThemeID(themeName);
+    async pullAssets(themeName = null, destDir = "./shopify", force = false, dryrun=false, filter= null) {
+        const filterDate = Date.parse(filter?.createdAt);
+        const theme = await this.listAssets(themeName, !!filterDate);
         if (!theme || !theme.id) return [];
 
-        const remoteAssets = await this.#getAssets(theme.id);
+        //todo: turn this into a generator
+        if (filterDate) {
+            for (let i = theme.assets.length - 1; i >= 0; --i) {
+                const asset = theme.assets[i];
+                if (asset.versions?.length > 0) {
+                    for (let v = asset.versions?.length - 1; v >= 0; --v) {
+                        if (Date.parse(asset.versions[v].created_at) > filterDate) {
+                            asset.versions.splice(v, 1);
+                        }
+                    }
+                    if (asset.versions.length === 0) {
+                        theme.assets.splice(i, 1);
+                    }
+                }
+                else if (Date.parse(asset.updated_at) > filterDate) {
+                    theme.assets.splice(i, 1);
+                }
+            }
+        }
+        const remoteAssets = theme.assets;
+
         // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
         const knownDirs = new Set(["assets","layout","sections","templates","config","locales","snippets"]);
         remoteAssets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
@@ -203,8 +224,10 @@ class Shopify {
             else {
                 console.debug(`SKIP: ${filename}`);
             }
-
         }))
+
+        // we don't delete when filtering
+        if (filterDate) localFiles.clear();
 
         for (const f of localFiles) {
             console.log(`DELETE ${f}`);
@@ -214,10 +237,10 @@ class Shopify {
     }
 
     async pushAssets(themeName = null, destDir = "./shopify", force = false, dryrun=false) {
-        const theme = await this.#getThemeID(themeName);
+        const theme = await this.listAssets(themeName);
         if (!theme || !theme.id) return [];
 
-        const remoteAssets = await this.#getAssets(theme.id);
+        const remoteAssets = theme.assets;
         // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
         const knownDirs = new Set(["assets","layout","sections","templates","config","locales","snippets"]);
         remoteAssets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
@@ -352,9 +375,17 @@ class Shopify {
         return scripts;
     }
 
-    async pullScriptTags(destDir = "./shopify", force = false, dryrun=false) {
+    async pullScriptTags(destDir = "./shopify", force = false, dryrun=false, filter= null) {
         const scripts = await this.listScriptTags();
-
+        //todo: turn this into a generator
+        const filterDate = Date.parse(filter?.createdAt);
+        if (filterDate) {
+            for (let i = scripts.length - 1; i >= 0; --i) {
+                if (Date.parse(scripts[i].updated_at) > filterDate) {
+                    scripts.splice(i, 1);
+                }
+            }
+        }
         const filename = path.join(destDir, "scripts.csv");
         const csvData = [
             "src,event,scope",
@@ -428,11 +459,17 @@ class Shopify {
         return pages;
     }
 
-    async pullPages(destDir = "./shopify", force = false, dryrun=false) {
-        const pagesDir = path.join(destDir, "pages");
-        const pagesDraftDir = path.join(pagesDir, "drafts");
-
+    async pullPages(destDir = "./shopify", force = false, dryrun=false, filter= null) {
         const remotePages = await this.listPages();
+        //todo: turn this into a generator
+        const filterDate = Date.parse(filter?.createdAt);
+        if (filterDate) {
+            for (let i = remotePages.length - 1; i >= 0; --i) {
+                if (Date.parse(remotePages[i].updated_at) > filterDate) {
+                    remotePages.splice(i, 1);
+                }
+            }
+        }
 
         const localFiles = new Set([...await this.getLocalFiles(destDir, "pages")].map(file => path.relative("pages", file)));
 
@@ -568,7 +605,7 @@ class Shopify {
         return blogDetails;
     }
 
-    async pullBlogArticles(destDir = "./shopify", blog=null, force = false, dryrun=false) {
+    async pullBlogArticles(destDir = "./shopify", blog=null, force = false, dryrun=false, filter= null) {
 
         // which blog?
         if (!blog) {
@@ -578,6 +615,16 @@ class Shopify {
 
         const blogDetails = await this.listBlogArticles(blog);
         if (!blogDetails) return;
+
+        //todo: turn this into a generator
+        const filterDate = Date.parse(filter?.createdAt);
+        if (filterDate) {
+            for (let i = blogDetails.articles.length - 1; i >= 0; --i) {
+                if (Date.parse(blogDetails.articles[i].updated_at) > filterDate) {
+                    blogDetails.articles.splice(i, 1);
+                }
+            }
+        }
 
         const blogArticlesDir = path.join(destDir, blogDetails.key);
 
@@ -714,9 +761,19 @@ class Shopify {
         return menus;
     }
 
-    async pullMenus(destDir = "./shopify", force = false, dryrun=false) {
+    async pullMenus(destDir = "./shopify", force = false, dryrun=false, filter= null) {
         const menus = await this.listMenus().catch();
         if (!menus) return;
+
+        //todo: turn this into a generator
+        const filterDate = Date.parse(filter?.createdAt);
+        if (filterDate) {
+            for (let i = menus.length - 1; i >= 0; --i) {
+                if (Date.parse(menus[i].updated_at) > filterDate) {
+                    menus.splice(i, 1);
+                }
+            }
+        }
 
         const menuToYml = function(currItems = [], indent = "") {
             return currItems.map(item => [`${indent}- ${item.title}`,menuToYml(item.items, "  " + indent)]);

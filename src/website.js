@@ -20,7 +20,7 @@ async function list(theme, options) {
         }
     }
     else {
-        const assets = await shopify.listAssets(theme, options.changes);
+        const themeAssets = await shopify.listAssets(theme, options.changes);
         const menus = await shopify.listMenus().catch(e => {}) || [];
         const pages = await shopify.listPages();
         const blogArticles = await shopify.listBlogArticles();
@@ -35,12 +35,12 @@ async function list(theme, options) {
                 this.get(valueDate).push(value);
             }
 
-            for (const asset of assets || []) {
+            for (const asset of themeAssets.assets || []) {
                 if (!asset.versions || asset.versions.length === 0) {
                     // use updated_at not created_at since @v created_at might not available
                     changeSet.add(asset.updated_at, asset.key);
                 }
-                asset.versions?.forEach(item => changeSet.add(item.created_at, asset.key + "@" + item.version));
+                asset.versions?.forEach(item => changeSet.add(item.updated_at, asset.key + "@" + item.version));
             }
             menus.forEach(item => changeSet.add(item.updated_at, item.key));
             pages.forEach(item => changeSet.add(item.updated_at, item.key + ".html"));
@@ -86,12 +86,15 @@ async function list(theme, options) {
 
 async function pull(options) {
     const shopify = init();
-    if (options.assets) await shopify.pullAssets(options.theme, program.outputDir, options.force, options.dryrun);
-    if (options.redirects) await shopify.pullRedirects(program.outputDir, options.force, options.dryrun);
-    if (options.menus) await shopify.pullMenus(program.outputDir, options.force, options.dryrun);
-    if (options.pages) await shopify.pullPages(program.outputDir, options.force, options.dryrun);
-    if (options.blogs) await shopify.pullBlogArticles(program.outputDir, null, options.force, options.dryrun);
-    if (options.scripttags) await shopify.pullScriptTags(program.outputDir, options.force, options.dryrun);
+    const filter = {
+        createdAt: options.filterCreated
+    }
+    if (options.assets) await shopify.pullAssets(options.theme, program.outputDir, options.force, options.dryrun, filter);
+    if (options.redirects && !options.filterCreated) await shopify.pullRedirects(program.outputDir, options.force, options.dryrun);
+    if (options.menus) await shopify.pullMenus(program.outputDir, options.force, options.dryrun, filter);
+    if (options.pages) await shopify.pullPages(program.outputDir, options.force, options.dryrun, filter);
+    if (options.blogs) await shopify.pullBlogArticles(program.outputDir, null, options.force, options.dryrun, filter);
+    if (options.scripttags) await shopify.pullScriptTags(program.outputDir, options.force, options.dryrun, filter);
 }
 
 async function push(options) {
@@ -133,6 +136,7 @@ program
     .option('--theme <name>', 'use a specific theme (defaults to the theme that is currently active)')
     .option('--force', 'force download all files', false)
     .option('--dryrun', "dont't save files" , false)
+    .option('--filter-created <timestamp>', "Only pull files present at given timestamp")
     .option('--no-themecheck', 'By default only the active theme will pull changes to redirects, scripts, pages and blogs. Disable theme-check to always pull, even on inactive themes', false)
     .option('--no-assets', 'disable pulling assets', false)
     .option('--no-redirects', 'disable pulling redirects', false)
