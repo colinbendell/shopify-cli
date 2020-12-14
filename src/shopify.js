@@ -280,8 +280,11 @@ class Shopify {
     async pullRedirects(destDir = "./shopify", force = false, dryrun=false) {
         const redirects = await this.listRedirects();
         const filename = path.join(destDir, "redirects.csv");
-        //TODO: .replace(",", "%2C")
-        const csvData = ["Redirect from,Redirect to", ...redirects.map(r => r.path + "," + r.target)].join('\n');
+        const csvData = [
+            "Redirect from,Redirect to",
+            ...redirects.map(r => `${r.path},${r.target}`)
+            //TODO: .replace(",", "%2C")
+        ].join('\n');
         if (force || await md5File(filename) !== md5(csvData)) {
             console.log(`SAVING: redirects.csv`);
             if (!dryrun) await this.#saveFile(filename, csvData);
@@ -353,8 +356,11 @@ class Shopify {
         const scripts = await this.listScriptTags();
 
         const filename = path.join(destDir, "scripts.csv");
-        //TODO: .replace(",", "%2C")
-        const csvData = ["src,event,scope", ...scripts.map(s => s.src + "," + s.event + "," + s.display_scope)].join('\n');
+        const csvData = [
+            "src,event,scope",
+            ...scripts.map(s => `${s.src},${s.event},${s.display_scope}`)
+            //TODO: .replace(",", "%2C")
+        ].join('\n');
 
         if (force || await md5File(filename) !== md5(csvData)) {
             console.log(`SAVING: scripts.csv`);
@@ -410,16 +416,15 @@ class Shopify {
     //
     // Pages
     //
-    async listPages() {
-        let count = null;
+    async listPages(baseDir = "pages") {
         const pages = [];
-        while (count === null || pages.length < count) {
+        let data = null;
+        while (!data || data?.pages.length  === 250) {
             const maxID = Math.max(0, ...pages.map(r => r.id));
-            const data = await this.shopifyAPI.getPages(maxID)
+            data = await this.shopifyAPI.getPages(maxID)
             pages.push(...data.pages);
-            if (count === null) count = pages.length < 250 ? pages.length : (await this.shopifyAPI.getPagesCount()).count;
         }
-        pages.forEach(p => p.key = path.join("pages", p.published_at ? "" : "drafts", p.handle));
+        pages.forEach(p => p.key = path.join(baseDir, p.published_at ? "" : "drafts", p.handle));
         return pages;
     }
 
@@ -532,16 +537,15 @@ class Shopify {
     //
     // Blogs
     //
-    async listBlogs() {
-        let count = null;
+    async listBlogs(baseDir = "blogs") {
+        let data = null;
         const blogs = [];
-        while (count === null || blogs.length < count) {
+        while (!data || data?.blogs.length  === 250) {
             const maxID = Math.max(0, ...blogs.map(r => r.id));
-            const data = await this.shopifyAPI.getBlogs(maxID)
+            data = await this.shopifyAPI.getBlogs(maxID)
             blogs.push(...data.blogs);
-            if (count === null) count = blogs.length < 250 ? blogs.length : (await this.shopifyAPI.getBlogsCount()).count;
         }
-        blogs.forEach(b => b.key = path.join("blogs", b.handle));
+        blogs.forEach(b => b.key = path.join(baseDir, b.handle));
         return blogs;
     }
     async listBlogArticles(blog) {
@@ -553,15 +557,14 @@ class Shopify {
         const blogs = await this.listBlogs();
         const blogDetails = blogs.filter(b => Number.isInteger(blog) ? b.id === blog : b.handle === Shopify.handleName(blog))[0];
         blogDetails.articles = [];
-        const blogArticles = blogDetails.articles;
-        let count = null;
-        while (count === null || blogArticles.length < count) {
-            const maxID = Math.max(0, ...blogArticles.map(r => r.id));
-            const data = await this.shopifyAPI.getBlogArticles(blogDetails.id, maxID)
-            blogArticles.push(...data.articles);
-            if (count === null) count = blogArticles.length < 250 ? blogArticles.length : (await this.shopifyAPI.getBlogArticlesCount(blogDetails.id)).count;
+        const articles = blogDetails.articles;
+        let data = null;
+        while (!data || data?.articles.length  === 250) {
+            const maxID = Math.max(0, ...articles.map(r => r.id));
+            data = await this.shopifyAPI.getBlogArticles(blogDetails.id, maxID)
+            articles.push(...data.articles);
         }
-        blogArticles.forEach(a => a.key = path.join(a.published_at ? "" : "drafts", a.handle));
+        articles.forEach(a => a.key = path.join(a.published_at ? "" : "drafts", a.handle));
         return blogDetails;
     }
 
@@ -699,20 +702,21 @@ class Shopify {
     //
     // Menu
     //
-    async listMenus() {
+    async listMenus(baseDir = "menus") {
         let data = null;
         const menus = [];
-        while (data === null || data.menus.length  === 250) {
+        while (!data || data.menus.length  === 250) {
             const maxID = Math.max(0, ...menus.map(r => r.id));
-            data = await this.shopifyAPI.getMenus(maxID)
+            data = await this.shopifyAPI.getMenus(maxID);
             menus.push(...data.menus);
         }
-        menus.forEach(b => b.key = path.join("menus", b.handle));
+        menus.forEach(b => b.key = path.join(baseDir, b.handle));
         return menus;
     }
 
     async pullMenus(destDir = "./shopify", force = false, dryrun=false) {
-        const menus = await this.listMenus();
+        const menus = await this.listMenus().catch();
+        if (!menus) return;
 
         const menuToYml = function(currItems = [], indent = "") {
             return currItems.map(item => [`${indent}- ${item.title}`,menuToYml(item.items, "  " + indent)]);
