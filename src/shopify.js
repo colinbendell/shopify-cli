@@ -5,7 +5,7 @@ const ShopifyAPI = require('./shopify-api');
 const {getFiles, globAsRegex, md5File, md5, cleanObject, isSame} = require('./utils');
 const { stringify } = require('./stringify');
 
-const PAGES_IGNORE_ATTRIBUTES = ["id", "handle", "shop_id", "admin_graphql_api_id"];
+const PAGES_IGNORE_ATTRIBUTES = ["id", "key", "handle", "shop_id", "admin_graphql_api_id"];
 const PAGES_IGNORE_ATTRIBUTES_EXT = [...PAGES_IGNORE_ATTRIBUTES, "published_at", "created_at", "updated_at", "deleted_at"];
 
 class Shopify {
@@ -13,11 +13,13 @@ class Shopify {
         this.shopifyAPI = new ShopifyAPI(auth);
     }
 
-    async #getThemeID(name = null) {
-        const res = await this.shopifyAPI.getThemes();
-
-        //TODO: normalize name?
-        return res.themes.filter(t => (!name && t.role === 'main') || t.name === name)[0];
+    static handleName(name) {
+        return name.normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase()
+            .trim()
+            .replace(/[^a-z0-9-_]+/g, "_")
+            .replace(/^_+|_+$/g, "");
     }
 
     #ignoreFiles = new Map();
@@ -80,7 +82,16 @@ class Shopify {
     }
 
     async listThemes() {
-        return this.shopifyAPI.getThemes();
+        const data = await this.shopifyAPI.getThemes();
+        data.themes.forEach(t => t.handle = Shopify.handleName(t.name));
+        return data.themes;
+    }
+
+    async #getThemeID(name = null) {
+        const res = await this.listThemes();
+
+        //TODO: normalize name?
+        return res.filter(t => (!name && t.role === 'main') || t.handle === Shopify.handleName(name))[0];
     }
 
     async publishTheme(themeName) {
@@ -167,30 +178,30 @@ class Shopify {
             localFiles.delete(asset.key);
 
             // API optimization
-            if (!force && await this.#isAssetSame(filename, asset.checksum, asset.updated_at, asset.size)) {
-                console.debug(`SKIP: ${filename}`);
-                return;
-            }
+            if (force || !(await this.#isAssetSame(filename, asset.checksum, asset.updated_at, asset.size))) {
+                console.log(`SAVING: ${asset.key}`)
+                if (dryrun) {
+                    //no-op
+                }
+                else if (asset.public_url) {
+                    const res = await fetch(asset.public_url);
+                    await this.#saveFile(path.join(destDir, asset.key), Buffer.from(await res.arrayBuffer()));
+                }
+                else {
+                    const detail = await this.shopifyAPI.getAsset(theme.id, asset.key);
+                    if (detail && detail.asset && detail.asset.value) {
+                        let data = detail.asset.value;
+                        if (detail.asset.key.endsWith("json")) {
+                            // console.log(`${asset.key} - ${require('crypto').createHash('md5').update(JSON.stringify(JSON.parse(detail.asset.value))).digest('hex')}`)
+                            data = stringify(JSON.parse(data));
+                        }
 
-            console.log(`SAVING: ${asset.key}`)
-            if (dryrun) {
-                //no-op
-            }
-            else if (asset.public_url) {
-                const res = await fetch(asset.public_url);
-                await this.#saveFile(path.join(destDir, asset.key), Buffer.from(await res.arrayBuffer()));
+                        await this.#saveFile(filename, data);
+                    }
+                }
             }
             else {
-                const detail = await this.shopifyAPI.getAsset(theme.id, asset.key);
-                if (detail && detail.asset && detail.asset.value) {
-                    let data = detail.asset.value;
-                    if (detail.asset.key.endsWith("json")) {
-                        console.log(`${asset.key} - ${require('crypto').createHash('md5').update(JSON.stringify(JSON.parse(detail.asset.value))).digest('hex')}`)
-                        data = stringify(JSON.parse(data));
-                    }
-
-                    await this.#saveFile(filename, data);
-                }
+                console.debug(`SKIP: ${filename}`);
             }
 
         }))
@@ -269,12 +280,11 @@ class Shopify {
     async pullRedirects(destDir = "./shopify", force = false, dryrun=false) {
         const redirects = await this.listRedirects();
         const filename = path.join(destDir, "redirects.csv");
-        const csvData = ["Redirect from,Redirect to"];
         //TODO: .replace(",", "%2C")
-        csvData.push(...redirects.map(r => r.path + "," + r.target));
-        if (await md5File(filename) !== md5(csvData.join('\n'))) {
+        const csvData = ["Redirect from,Redirect to", ...redirects.map(r => r.path + "," + r.target)].join('\n');
+        if (force || await md5File(filename) !== md5(csvData)) {
             console.log(`SAVING: redirects.csv`);
-            await this.#saveFile(filename, csvData.join('\n'));
+            if (!dryrun) await this.#saveFile(filename, csvData);
         }
         return redirects;
     }
@@ -343,12 +353,12 @@ class Shopify {
         const scripts = await this.listScriptTags();
 
         const filename = path.join(destDir, "scripts.csv");
-        const csvData = ["src,event,scope"];
         //TODO: .replace(",", "%2C")
-        csvData.push(...scripts.map(s => s.src + "," + s.event + "," + s.display_scope));
-        if (await md5File(filename) !== md5(csvData.join('\n'))) {
+        const csvData = ["src,event,scope", ...scripts.map(s => s.src + "," + s.event + "," + s.display_scope)].join('\n');
+
+        if (force || await md5File(filename) !== md5(csvData)) {
             console.log(`SAVING: scripts.csv`);
-            await this.#saveFile(filename, csvData.join('\n'));
+            if (!dryrun) await this.#saveFile(filename, csvData);
         }
         return scripts;
     }
@@ -418,27 +428,32 @@ class Shopify {
         const pagesDraftDir = path.join(pagesDir, "drafts");
 
         const remotePages = await this.listPages();
-        console.log(`SAVING: pages/*`)
 
         const localFiles = new Set([...await this.getLocalFiles(destDir, "pages")].map(file => path.relative("pages", file)));
 
         for (const page of remotePages) {
             const handle = page.handle;
             const html = page.body_html;
-            const filename = path.join(page.published_at ? pagesDir : pagesDraftDir, handle);
-            cleanObject(page, PAGES_IGNORE_ATTRIBUTES);
+            const key = page.key;
             page.body_html = {file: `${handle}.html`};
 
-            console.info(`SAVING: ${page.published_at ? "" : "drafts/"}${handle}.html`);
-            await this.#saveFile(filename + ".json", JSON.stringify(page, null, 2));
-            await this.#saveFile(filename + ".html", html);
-            localFiles.delete(path.relative(pagesDir, filename) + ".json");
-            localFiles.delete(path.relative(pagesDir, filename) + ".html");
+            const filename = path.join(destDir, page.key);
+            localFiles.delete(page.key + ".json");
+            localFiles.delete(page.key + ".html");
+
+            const jsonData = JSON.stringify(cleanObject(page, PAGES_IGNORE_ATTRIBUTES), null, 2);
+            if (force || await md5File(filename + ".json") !== md5(jsonData) || await md5File(filename + ".html") !== md5(html)) {
+                console.info(`SAVING: ${key}.html`);
+                if (!dryrun) {
+                    await this.#saveFile(filename + ".json", jsonData);
+                    await this.#saveFile(filename + ".html", html);
+                }
+            }
         }
 
         for (const f of localFiles) {
             console.log(`DELETE ${f}`);
-            fs.unlinkSync(path.join(destDir, f));
+            if (!dryrun) fs.unlinkSync(path.join(destDir, f));
         }
     }
 
@@ -536,7 +551,7 @@ class Shopify {
         }
 
         const blogs = await this.listBlogs();
-        const blogDetails = blogs.filter(b => Number.isInteger(blog) ? b.id === blog : b.handle === blog)[0];
+        const blogDetails = blogs.filter(b => Number.isInteger(blog) ? b.id === blog : b.handle === Shopify.handleName(blog))[0];
         blogDetails.articles = [];
         const blogArticles = blogDetails.articles;
         let count = null;
@@ -568,24 +583,29 @@ class Shopify {
             localFiles.add(path.relative(blogArticlesDir, file));
         }
 
-        console.log(`SAVING: blog/*`)
         for (const blogArticle of blogDetails.articles || []) {
-            cleanObject(blogArticle, PAGES_IGNORE_ATTRIBUTES);
+            const handle = blogArticle.handle;
             const html = blogArticle.body_html || "";
-            blogArticle.body_html = {file: `${blogArticle.handle}.html`};
+            const key = blogArticle.key;
+            blogArticle.body_html = {file: `${handle}.html`};
 
-            console.info(`SAVING: ${blogArticle.key}.html`);
             const filename = path.join(blogArticlesDir, blogArticle.key);
-            await this.#saveFile(filename + ".json", JSON.stringify(blogArticle, null, 2));
-            await this.#saveFile(filename + ".html", html);
-
             localFiles.delete(blogArticle.key + ".json");
             localFiles.delete(blogArticle.key + ".html");
+
+            const jsonData = JSON.stringify(cleanObject(blogArticle, PAGES_IGNORE_ATTRIBUTES), null, 2);
+            if (force || await md5File(filename + ".json") !== md5(jsonData) || await md5File(filename + ".html") !== md5(html)) {
+                console.log(`SAVING: ${blogDetails.key}/${key}.html`);
+                if (!dryrun) {
+                    await this.#saveFile(filename + ".json", jsonData);
+                    await this.#saveFile(filename + ".html", html);
+                }
+            }
         }
         //TODO: delete
         for (const f of localFiles) {
            console.log(`DELETE ${f}`);
-           fs.unlinkSync(path.join(blogArticlesDir, f));
+            if (!dryrun) fs.unlinkSync(path.join(blogArticlesDir, f));
         }
 
     }
@@ -637,7 +657,7 @@ class Shopify {
                 remoteArticle.published = (!!remoteArticle.published_at);
 
                 //normalize the basics
-                localArticle.handle = handle;
+                localArticle.handle = Shopify.handleName(handle);
                 localArticle.id = remoteArticle.id;
 
                 if (!isSame(remoteArticle, localArticle, PAGES_IGNORE_ATTRIBUTES_EXT)) {
@@ -659,7 +679,7 @@ class Shopify {
             delete blogArticle.id;
             if (!detail.published) delete blogArticle.published_at;
             blogArticle.published = file.startsWith("drafts");
-            blogArticle.handle = file.replace(/drafts[\/\\]/, "");
+            blogArticle.handle = Shopify.handleName(file.replace(/drafts[\/\\]/, ""));
 
             console.log(`CREATE blogs/${blogDetails.handle}/${file}`);
             await this.shopifyAPI.createBlogArticle(blogArticle);
@@ -717,7 +737,7 @@ class Shopify {
         //TODO: delete
         for (const f of localFiles) {
            console.log(`DELETE ${f}`);
-           fs.unlinkSync(path.join(destDir, f));
+            if (!dryrun) fs.unlinkSync(path.join(destDir, f));
         }
 
         return menus;

@@ -102,11 +102,11 @@ async function list(theme, options) {
 async function pull(options) {
     const shopify = init();
     if (options.assets) await shopify.pullAssets(options.theme, program.outputDir, options.force, options.dryrun);
-    if (options.redirects) await shopify.pullRedirects(program.outputDir);
-    if (options.scripttags) await shopify.pullScriptTags(program.outputDir);
-    if (options.menus) await shopify.pullMenus(program.outputDir);
-    if (options.pages) await shopify.pullPages(program.outputDir);
-    if (options.blogs) await shopify.pullBlogArticles(program.outputDir);
+    if (options.redirects) await shopify.pullRedirects(program.outputDir, options.force, options.dryrun);
+    if (options.menus) await shopify.pullMenus(program.outputDir, options.force, options.dryrun);
+    if (options.pages) await shopify.pullPages(program.outputDir, options.force, options.dryrun);
+    if (options.blogs) await shopify.pullBlogArticles(program.outputDir, null, options.force, options.dryrun);
+    if (options.scripttags) await shopify.pullScriptTags(program.outputDir, options.force, options.dryrun);
 }
 
 async function push(options) {
@@ -146,6 +146,7 @@ program
     .description('pull all remote shopify changes locally')
     .option('--theme <name>', 'use a specific theme (defaults to the theme that is currently active)')
     .option('--force', 'force download all files', false)
+    .option('--dryrun', "dont't save files" , false)
     .option('--no-themecheck', 'By default only the active theme will pull changes to redirects, scripts, pages and blogs. Disable theme-check to always pull, even on inactive themes', false)
     .option('--no-assets', 'disable pulling assets', false)
     .option('--no-redirects', 'disable pulling redirects', false)
