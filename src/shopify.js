@@ -153,10 +153,8 @@ class Shopify {
 
         if (includeVersions) {
             await Promise.all(theme.assets.map(async asset => {
-                const v = await this.shopifyAPI.getAssetVersions(theme.id, asset.key).catch(e => console.debug(e));
-                if (v && v.versions && v.versions.length > 0) {
-                    asset.versions = v.versions;
-                }
+                const v = asset.versions ?? await this.shopifyAPI.getAssetVersions(theme.id, asset.key).catch(e => console.debug(e));
+                asset.versions = v?.versions || [];
             }));
         }
         return theme;
@@ -167,26 +165,17 @@ class Shopify {
         const theme = await this.listAssets(themeName, !!filterDate);
         if (!theme || !theme.id) return [];
 
+        let remoteAssets = theme.assets;
+
         //todo: turn this into a generator
         if (filterDate) {
-            for (let i = theme.assets.length - 1; i >= 0; --i) {
-                const asset = theme.assets[i];
-                if (asset.versions?.length > 0) {
-                    for (let v = asset.versions?.length - 1; v >= 0; --v) {
-                        if (Date.parse(asset.versions[v].created_at) > filterDate) {
-                            asset.versions.splice(v, 1);
-                        }
-                    }
-                    if (asset.versions.length === 0) {
-                        theme.assets.splice(i, 1);
-                    }
-                }
-                else if (Date.parse(asset.updated_at) > filterDate) {
-                    theme.assets.splice(i, 1);
-                }
-            }
+            remoteAssets.forEach(asset =>
+                asset.version = asset?.versions?.filter(item => filterDate >= Date.parse(item.created_at))
+                    .map(item => item.version)
+                    .sort((a,b) => a - b)[0]
+            );
+            remoteAssets = remoteAssets.filter(item => item.version || filterDate >= Date.parse(item.updated_at));
         }
-        const remoteAssets = theme.assets;
 
         // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
         const knownDirs = new Set(["assets","layout","sections","templates","config","locales","snippets"]);
@@ -199,7 +188,7 @@ class Shopify {
             localFiles.delete(asset.key);
 
             // API optimization
-            if (force || !(await this.#isAssetSame(filename, asset.checksum, asset.updated_at, asset.size))) {
+            if (force || asset.version || !(await this.#isAssetSame(filename, asset.checksum, asset.updated_at, asset.size))) {
                 console.log(`SAVING: ${asset.key}`)
                 if (dryrun) {
                     //no-op
@@ -209,7 +198,7 @@ class Shopify {
                     await this.#saveFile(path.join(destDir, asset.key), Buffer.from(await res.arrayBuffer()));
                 }
                 else {
-                    const detail = await this.shopifyAPI.getAsset(theme.id, asset.key);
+                    const detail = await this.shopifyAPI.getAsset(theme.id, asset.key, asset?.version?.version);
                     if (detail && detail.asset && detail.asset.value) {
                         let data = detail.asset.value;
                         if (detail.asset.key.endsWith("json")) {
@@ -376,15 +365,11 @@ class Shopify {
     }
 
     async pullScriptTags(destDir = "./shopify", force = false, dryrun=false, filter= null) {
-        const scripts = await this.listScriptTags();
+        let scripts = await this.listScriptTags();
         //todo: turn this into a generator
         const filterDate = Date.parse(filter?.createdAt);
         if (filterDate) {
-            for (let i = scripts.length - 1; i >= 0; --i) {
-                if (Date.parse(scripts[i].updated_at) > filterDate) {
-                    scripts.splice(i, 1);
-                }
-            }
+            scripts = scripts.filter(item => filterDate >= Date.parse(item.updated_at));
         }
         const filename = path.join(destDir, "scripts.csv");
         const csvData = [
@@ -460,30 +445,27 @@ class Shopify {
     }
 
     async pullPages(destDir = "./shopify", force = false, dryrun=false, filter= null) {
-        const remotePages = await this.listPages();
+        let remotePages = await this.listPages();
         //todo: turn this into a generator
         const filterDate = Date.parse(filter?.createdAt);
         if (filterDate) {
-            for (let i = remotePages.length - 1; i >= 0; --i) {
-                if (Date.parse(remotePages[i].updated_at) > filterDate) {
-                    remotePages.splice(i, 1);
-                }
-            }
+            remotePages = remotePages.filter(item => filterDate >= Date.parse(item.updated_at));
         }
 
         const localFiles = new Set([...await this.getLocalFiles(destDir, "pages")].map(file => path.relative("pages", file)));
 
         for (const page of remotePages) {
-            const handle = page.handle;
-            const html = page.body_html;
-            const key = page.key;
-            page.body_html = {file: `${handle}.html`};
+            const pageClone = Object.assign({}, page);
+            const handle = pageClone.handle;
+            const html = pageClone.body_html || "";
+            const key = pageClone.key;
+            pageClone.body_html = {file: `${handle}.html`};
 
-            const filename = path.join(destDir, page.key);
+            const filename = path.join(destDir, pageClone.key);
             localFiles.delete(page.key + ".json");
             localFiles.delete(page.key + ".html");
 
-            const jsonData = JSON.stringify(cleanObject(page, PAGES_IGNORE_ATTRIBUTES), null, 2);
+            const jsonData = JSON.stringify(cleanObject(pageClone, PAGES_IGNORE_ATTRIBUTES), null, 2);
             if (force || await md5File(filename + ".json") !== md5(jsonData) || await md5File(filename + ".html") !== md5(html)) {
                 console.info(`SAVING: ${key}.html`);
                 if (!dryrun) {
@@ -492,6 +474,9 @@ class Shopify {
                 }
             }
         }
+
+        // we don't delete when filtering
+        if (filterDate) localFiles.clear();
 
         for (const f of localFiles) {
             console.log(`DELETE ${f}`);
@@ -610,20 +595,18 @@ class Shopify {
         // which blog?
         if (!blog) {
             const blogs = await this.listBlogs();
-            return await Promise.all(blogs.map(async b => await this.pullBlogArticles(destDir, b.id, force, dryrun)));
+            return await Promise.all(blogs.map(async b => await this.pullBlogArticles(destDir, b.id, force, dryrun, filter)));
         }
 
         const blogDetails = await this.listBlogArticles(blog);
         if (!blogDetails) return;
 
+        let articles = blogDetails.articles;
+
         //todo: turn this into a generator
         const filterDate = Date.parse(filter?.createdAt);
         if (filterDate) {
-            for (let i = blogDetails.articles.length - 1; i >= 0; --i) {
-                if (Date.parse(blogDetails.articles[i].updated_at) > filterDate) {
-                    blogDetails.articles.splice(i, 1);
-                }
-            }
+            articles = articles.filter(item => filterDate >= Date.parse(item.updated_at));
         }
 
         const blogArticlesDir = path.join(destDir, blogDetails.key);
@@ -633,17 +616,18 @@ class Shopify {
             localFiles.add(path.relative(blogArticlesDir, file));
         }
 
-        for (const blogArticle of blogDetails.articles || []) {
-            const handle = blogArticle.handle;
-            const html = blogArticle.body_html || "";
-            const key = blogArticle.key;
-            blogArticle.body_html = {file: `${handle}.html`};
+        for (const blogArticle of articles || []) {
+            const article = Object.assign({}, blogArticle);
+            const handle = article.handle;
+            const html = article.body_html || "";
+            const key = article.key;
+            article.body_html = {file: `${handle}.html`};
 
-            const filename = path.join(blogArticlesDir, blogArticle.key);
-            localFiles.delete(blogArticle.key + ".json");
-            localFiles.delete(blogArticle.key + ".html");
+            const filename = path.join(blogArticlesDir, article.key);
+            localFiles.delete(article.key + ".json");
+            localFiles.delete(article.key + ".html");
 
-            const jsonData = JSON.stringify(cleanObject(blogArticle, PAGES_IGNORE_ATTRIBUTES), null, 2);
+            const jsonData = JSON.stringify(cleanObject(article, PAGES_IGNORE_ATTRIBUTES), null, 2);
             if (force || await md5File(filename + ".json") !== md5(jsonData) || await md5File(filename + ".html") !== md5(html)) {
                 console.log(`SAVING: ${blogDetails.key}/${key}.html`);
                 if (!dryrun) {
@@ -652,6 +636,10 @@ class Shopify {
                 }
             }
         }
+
+        // we don't delete when filtering
+        if (filterDate) localFiles.clear();
+
         //TODO: delete
         for (const f of localFiles) {
            console.log(`DELETE ${f}`);
@@ -762,17 +750,13 @@ class Shopify {
     }
 
     async pullMenus(destDir = "./shopify", force = false, dryrun=false, filter= null) {
-        const menus = await this.listMenus().catch();
+        let menus = await this.listMenus().catch();
         if (!menus) return;
 
         //todo: turn this into a generator
         const filterDate = Date.parse(filter?.createdAt);
         if (filterDate) {
-            for (let i = menus.length - 1; i >= 0; --i) {
-                if (Date.parse(menus[i].updated_at) > filterDate) {
-                    menus.splice(i, 1);
-                }
-            }
+            menus = menus.filter(item => filterDate >= Date.parse(item.updated_at));
         }
 
         const menuToYml = function(currItems = [], indent = "") {
@@ -795,6 +779,10 @@ class Shopify {
             }
             localFiles.delete(menu.key + ".md");
         }
+
+        // we don't delete when filtering
+        if (filterDate) localFiles.clear();
+
         //TODO: delete
         for (const f of localFiles) {
            console.log(`DELETE ${f}`);
