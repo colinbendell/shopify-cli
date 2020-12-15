@@ -21,7 +21,7 @@ class ShopifyAPI {
     set #host(val) { this.auth.host = val; }
     get #host() { return this.auth.host; }
 
-    async #get(path = '/', maxTTL = 1) {
+    async #get(path = '/', maxTTL = 300) {
         return await this.#request("GET", path, null, maxTTL);
     }
 
@@ -40,7 +40,7 @@ class ShopifyAPI {
     async #request(method = "GET", path = '/', body = null, maxTTL = null) {
         if (CACHE.has(method + path) && maxTTL > 0) {
             let cache = CACHE.get(method + path);
-            let lastModified = Date.parse(cache.headers.get('last-modified') || cache.headers.get('date') || 0);
+            let lastModified = Date.parse(cache.headers.get('date') || cache.headers.get('last-modified') || 0);
             if (lastModified + (maxTTL * 1000) > Date.now()) {
                 return cache._body;
             }
@@ -90,7 +90,7 @@ class ShopifyAPI {
         if (res.status >= 500) {
             //TODO: how do we get out of infinite retry?
             console.error(`RETRY: ${method} ${path} (${res.headers.get('status') || res.status + " " + res.statusText})`);
-            await sleep(500);
+            await sleep(1000);
             return await this.#request(method, path, body, maxTTL);
         }
         if (res.status === 429) {
@@ -175,9 +175,10 @@ class ShopifyAPI {
         return await this.#get(`/admin/api/${API_VERSION}/themes/${themeID}/assets.json`)
     }
 
-    async getAsset(themeID, key) {
-        return await this.#get(`/admin/api/${API_VERSION}/themes/${themeID}/assets.json?asset[key]=${key}`);
+    async getAsset(themeID, key, version) {
+        return await this.#get(`/admin/api/${API_VERSION}/themes/${themeID}/assets.json?asset[key]=${key}${ version ? "&asset[version]=" + version : ""}`);
     }
+
     async getAssetVersions(themeID, key) {
         return await this.#get(`/admin/api/${API_VERSION}/themes/${themeID}/assets/versions?asset[key]=${key}`);
     }
