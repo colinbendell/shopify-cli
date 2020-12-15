@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 const program = require('commander');
 const path = require('path');
+const child_process = require('child_process');
 const Shopify = require('./shopify');
 
 process.on('SIGINT', function () {
@@ -40,7 +41,7 @@ async function list(theme, options) {
                     // use updated_at not created_at since @v created_at might not available
                     changeSet.add(asset.updated_at, asset.key);
                 }
-                asset.versions?.forEach(item => changeSet.add(item.updated_at, asset.key + "@" + item.version));
+                asset.versions?.forEach(item => changeSet.add(item.created_at, asset.key + "@" + item.version));
             }
             menus.forEach(item => changeSet.add(item.updated_at, item.key));
             pages.forEach(item => changeSet.add(item.updated_at, item.key + ".html"));
@@ -71,6 +72,34 @@ async function list(theme, options) {
             }
             else {
                 [...changeSet.keys()].sort().forEach(k => console.log(k));
+            }
+            if (options.git) {
+                const options = {
+                    cwd: program.outputDir,
+                    stdio: 'inherit',
+                }
+                for (const createdAt of [...changeSet.keys()].sort()) {
+                    console.log(createdAt)
+                    const filter = { createdAt }
+                    await shopify.pullAssets(theme, program.outputDir, false, false, filter);
+                    console.log(createdAt)
+                    await shopify.pullMenus(program.outputDir, false, false, filter);
+                    await shopify.pullPages(program.outputDir, false, false, filter);
+                    await shopify.pullBlogArticles(program.outputDir, null, false, false, filter);
+                    await shopify.pullScriptTags(program.outputDir, false, false, filter);
+                    options.env = Object.assign({
+                        'GIT_COMMITTER_DATE': createdAt,
+                        'GIT_AUTHOR_DATE': createdAt
+                    }, process.env)
+                    try {
+                        child_process.execFileSync('git', ['add', '-A'], options)
+                        child_process.execFileSync('git', ['commit', '--allow-empty', '-a', '-m', `Sync with Shopify @ ${createdAt}`], options)
+                    }
+                    catch (e) {
+                        console.error(e);
+                    }
+
+                }
             }
         }
         else {
@@ -128,6 +157,7 @@ program
     .command('list [theme]')
     .option('--changes', 'show unique change dates', false)
     .option('--details', 'expand the output to include details', false)
+    .option('--git', 'expand the output to include details', false)
     .action(list);
 
 program
