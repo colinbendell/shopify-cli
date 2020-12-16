@@ -14,7 +14,8 @@ class Shopify {
     }
 
     static handleName(name) {
-        return name.normalize("NFD")
+        return name.toString()
+            .normalize("NFD")
             .replace(/[\u0300-\u036f]/g, "")
             .toLowerCase()
             .trim()
@@ -81,23 +82,88 @@ class Shopify {
         return fs.readFileSync(filename, "binary");
     }
 
+    async getChangeSets(theme) {
+        // we use the current theme to match against other 'draft' themes that are similar to back fill the history
+        const currTheme = await this.getTheme(theme);
+
+        // back fill of paralallel theme history includes any theme that had development prior to the creation of the current theme
+        let themeAssets = [await this.listAssets(theme, true)].flat()
+        themeAssets = themeAssets.filter(
+            t => t.id === currTheme.id
+                || (!currTheme.theme_store_id && !t.theme_store_id && Date.parse(t.created_at) <= Date.parse(currTheme.created_at))
+                || (currTheme.theme_store_id === t.theme_store_id && Date.parse(t.created_at) <= Date.parse(currTheme.created_at)));
+        const menus = await this.listMenus().catch(e => {}) || [];
+        const pages = await this.listPages();
+        const blogArticles = await this.listBlogArticles();
+        const scriptTags = await this.listScriptTags();
+        // redirects aren't update/create time versioned
+        // const redirects = await shopify.listRedirects();
+
+        const changeSet = new Map();
+        changeSet.add = function(updatedAt, value) {
+            const valueDate = new Date(Date.parse(updatedAt) || 0).toISOString();
+            if (!this.has(valueDate)) this.set(valueDate, []);
+            this.get(valueDate).push(value);
+        }
+
+        for (const theme of [themeAssets].flat()) {
+            for (const asset of theme.assets || []) {
+                if (!asset.versions || asset.versions.length === 0) {
+                    // use updated_at not created_at since @v created_at might not available
+                    //TODO: change this to a tuple instead of string concatenation magic
+                    changeSet.add(asset.updated_at, theme.handle + "~" + asset.key);
+                }
+                asset.versions?.forEach(item => changeSet.add(item.created_at, theme.handle + "~" + asset.key + "@" + item.version));
+            }
+        }
+        menus.forEach(item => changeSet.add(item.updated_at, item.key));
+        pages.forEach(item => changeSet.add(item.updated_at, item.key + ".html"));
+        blogArticles.forEach(blog => {
+            blog.articles?.forEach(item => changeSet.add(item.updated_at, path.join(blog.key, item.key + ".html")));
+        });
+        scriptTags.forEach(item => changeSet.add(item.updated_at, item.src));
+        // redirect.forEach(item => changeSet.add(item.updated_at, item.path));
+
+        // reduce the changesets with near neighbours
+        let prev = 0;
+        for (const curr of [...changeSet.keys()].sort()) {
+            if (Date.parse(curr) - Date.parse(prev) <= 60*1000) {
+                const left = changeSet.get(prev);
+                const leftClean = new Set(left.map(v => v.replace(/^[a-z0-9._-]+~|@\d+$/g, "")));
+
+                const right = changeSet.get(curr);
+                const mergeable = !right.reduce((found, entry) => found || leftClean.has(entry.replace(/^[a-z0-9._-]+~|@\d+$/g, "")), false)
+                if (mergeable) {
+                    changeSet.set(curr, left.concat(right));
+                    changeSet.delete(prev);
+                }
+            }
+            prev = curr;
+        }
+        return changeSet;
+    }
+
     async listThemes() {
         const data = await this.shopifyAPI.getThemes();
         data.themes.forEach(t => t.handle = Shopify.handleName(t.name));
         return data.themes;
     }
 
-    async #getThemeID(name = null) {
+    async getTheme(name = null) {
         const res = await this.listThemes();
 
         //TODO: normalize name?
-        return res.filter(t => (!name && t.role === 'main') || name && t.handle === Shopify.handleName(name))[0];
+        return res.filter(t =>
+            (!name && t.role === 'main')
+            || (Number.isInteger(name) && t.id === name)
+            || (name && t.handle === Shopify.handleName(name))
+        )[0];
     }
 
     async publishTheme(themeName) {
         if (!themeName) return;
 
-        const theme = await this.#getThemeID(themeName);
+        const theme = await this.getTheme(themeName);
         if (!theme || !theme.id) return;
         if (theme.role !== 'main') return;
 
@@ -108,7 +174,7 @@ class Shopify {
     async initTheme(themeName, src = null) {
         if (!themeName) return;
 
-        const theme = await this.#getThemeID(themeName);
+        const theme = await this.getTheme(themeName);
         if (theme) return;
 
         console.log(`CREATE Theme: ${themeName}`);
@@ -138,7 +204,16 @@ class Shopify {
     }
 
     async listAssets(themeName, includeVersions = false) {
-        const theme = await this.#getThemeID(themeName);
+        if (!themeName) {
+            const themes = await this.listThemes();
+            const result = [];
+            for (const t of themes) {
+                result.push(await this.listAssets(t.id, includeVersions));
+            }
+            return result;
+        }
+
+        const theme = await this.getTheme(themeName);
         if (!theme || !theme.id) return;
 
         const data = await this.shopifyAPI.getAssets(theme.id);
@@ -162,10 +237,11 @@ class Shopify {
 
     async pullAssets(themeName = null, destDir = "./shopify", force = false, dryrun=false, filter= null) {
         const filterDate = Date.parse(filter?.createdAt);
-        const theme = await this.listAssets(themeName, !!filterDate);
-        if (!theme || !theme.id) return [];
+        const theme = await this.getTheme(themeName);
+        if (!themeDetails || !themeDetails.id) return [];
 
-        let remoteAssets = theme.assets;
+        const themeDetails = await this.listAssets(theme.id, !!filterDate);
+        let remoteAssets = themeDetails.assets;
 
         //todo: turn this into a generator
         if (filterDate) {

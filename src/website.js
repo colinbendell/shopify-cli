@@ -14,59 +14,17 @@ function init() {
 
 async function list(theme, options) {
     const shopify = init();
-    if (!theme) {
-        const res = await shopify.listThemes();
-        for (const theme of res || []) {
-            console.log(`${theme.handle || theme.name}${theme.role === 'main' ? " (main)" : ""}`);
+    const themes = await shopify.listThemes();
+    if (!theme && !options.changes) {
+        for (const theme of themes || []) {
+            console.log(`${theme.handle || theme.name}${theme.role === 'main' ? " :main" : ""} (${theme.created_at})`);
         }
     }
     else {
-        const themeAssets = await shopify.listAssets(theme, options.changes);
-        const menus = await shopify.listMenus().catch(e => {}) || [];
-        const pages = await shopify.listPages();
-        const blogArticles = await shopify.listBlogArticles();
-        const scriptTags = await shopify.listScriptTags();
-        // const redirects = await shopify.listRedirects();
+        const currTheme = await shopify.getTheme(theme);
 
         if (options.changes) {
-            const changeSet = new Map();
-            changeSet.add = function(updatedAt, value) {
-                const valueDate = new Date(Date.parse(updatedAt) || 0).toISOString();
-                if (!this.has(valueDate)) this.set(valueDate, []);
-                this.get(valueDate).push(value);
-            }
-
-            for (const asset of themeAssets.assets || []) {
-                if (!asset.versions || asset.versions.length === 0) {
-                    // use updated_at not created_at since @v created_at might not available
-                    changeSet.add(asset.updated_at, asset.key);
-                }
-                asset.versions?.forEach(item => changeSet.add(item.created_at, asset.key + "@" + item.version));
-            }
-            menus.forEach(item => changeSet.add(item.updated_at, item.key));
-            pages.forEach(item => changeSet.add(item.updated_at, item.key + ".html"));
-            blogArticles.forEach(blog => {
-                blog.articles?.forEach(item => changeSet.add(item.updated_at, path.join(blog.key, item.key + ".html")));
-            });
-            scriptTags.forEach(item => changeSet.add(item.updated_at, item.src));
-            // redirect.forEach(item => changeSet.add(item.updated_at, item.path));
-
-            // reduce the changesets with near neighbours
-            let prev = 0;
-            for (const curr of [...changeSet.keys()].sort()) {
-                if (Date.parse(curr) - Date.parse(prev) <= 60*1000) {
-                    const left = changeSet.get(prev);
-                    const leftClean = new Set(left.map(v => v.replace(/@\d+$/, "")));
-
-                    const right = changeSet.get(curr);
-                    const mergeable = !right.reduce((found, entry) => found || leftClean.has(entry.replace(/@\d+$/, "")), false)
-                    if (mergeable) {
-                        changeSet.set(curr, left.concat(right));
-                        changeSet.delete(prev);
-                    }
-                }
-                prev = curr;
-            }
+            const changeSet = await shopify.getChangeSets(theme);
             if (options.details) {
                 console.log(Object.fromEntries([...changeSet.entries()].sort()));
             }
@@ -79,10 +37,19 @@ async function list(theme, options) {
                     stdio: 'inherit',
                 }
                 for (const createdAt of [...changeSet.keys()].sort()) {
-                    console.log(createdAt)
                     const filter = { createdAt }
-                    await shopify.pullAssets(theme, program.outputDir, false, false, filter);
-                    console.log(createdAt)
+
+                    // determine which themes are needed for this changeset
+                    // it's a bit of a guess because the exact branching and ancestory isn't known
+                    const themeNames = new Set(changeSet.get(createdAt)
+                        .filter(f => /^[a-z0-9._-]+~/.test(f))
+                        .map(f => f.replace(/~.*/, ""))
+                        .filter(f => f === currTheme.handle || Date.parse(createdAt) < Date.parse(currTheme.created_at)));
+
+                    for (const themeName of [...themeNames]) {
+                        await shopify.pullAssets(themeName, program.outputDir, false, false, filter);
+                    }
+
                     await shopify.pullMenus(program.outputDir, false, false, filter);
                     await shopify.pullPages(program.outputDir, false, false, filter);
                     await shopify.pullBlogArticles(program.outputDir, null, false, false, filter);
@@ -103,12 +70,20 @@ async function list(theme, options) {
             }
         }
         else {
-            assets.forEach(item => console.log(`${item.key}`));
+            const currTheme = await shopify.getTheme(theme);
+            const themeAssets = await shopify.listAssets(currTheme.id, options.changes);
+
+            themeAssets.assets.forEach(item => console.log(`${item.key}`));
+            const menus = await shopify.listMenus().catch(e => {}) || [];
             menus.forEach(item => console.log(`${item.key}`));
+            const pages = await shopify.listPages();
             pages.forEach(item => console.log(`${item.key}.html`));
+            const blogArticles = await shopify.listBlogArticles();
             blogArticles.forEach(blog => pages.forEach(item => console.log(`${blog.key}/${item.key}.html`)));
+            const scriptTags = await shopify.listScriptTags();
             scriptTags.forEach(item => console.log(`${item.src}`));
-            // redirects.forEach(item => console.log(`${item.path}`));
+            const redirects = await shopify.listRedirects();
+            redirects.forEach(item => console.log(`${item.path}`));
         }
     }
 }
