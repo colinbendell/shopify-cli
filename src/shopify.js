@@ -238,7 +238,7 @@ class Shopify {
     async pullAssets(themeName = null, destDir = "./shopify", force = false, dryrun=false, filter= null) {
         const filterDate = Date.parse(filter?.createdAt);
         const theme = await this.getTheme(themeName);
-        if (!themeDetails || !themeDetails.id) return [];
+        if (!theme || !theme.id) return [];
 
         const themeDetails = await this.listAssets(theme.id, !!filterDate);
         let remoteAssets = themeDetails.assets;
