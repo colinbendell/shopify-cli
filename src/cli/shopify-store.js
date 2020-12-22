@@ -2,7 +2,7 @@
 const program = require('commander');
 const path = require('path');
 const child_process = require('child_process');
-const Shopify = require('./shopify');
+const Shopify = require('../shopify-core');
 
 process.on('SIGINT', function () {
     process.exit(1);

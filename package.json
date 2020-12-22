@@ -2,8 +2,8 @@
   "name": "shopify-git",
   "version": "1.0.0",
   "description": "Gti Sync service for Shopify Online Store",
-  "main": "src/website.js",
-  "bin" : { "shopify-website" : "./src/website.js" },
+  "main": "src/cli/shopify.js",
+  "bin" : { "shopify-website" : "src/cli/shopify.js"},
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },

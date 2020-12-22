@@ -14,7 +14,7 @@ The cli uses git style commands and include:
 
 For example:
 ```
-> bin/shopify-website pull
+> bin/shopify store pull
 ```
 ```
 SAVING: blogs/no-stinkin-outlaws/and-what-the-heck-is-up-with-that-super-cool-padding.html

@@ -8,7 +8,7 @@ const { stringify } = require('./stringify');
 const PAGES_IGNORE_ATTRIBUTES = ["id", "key", "handle", "shop_id", "admin_graphql_api_id"];
 const PAGES_IGNORE_ATTRIBUTES_EXT = [...PAGES_IGNORE_ATTRIBUTES, "published_at", "created_at", "updated_at", "deleted_at"];
 
-class Shopify {
+class ShopifyCore {
     constructor(auth) {
         this.shopifyAPI = new ShopifyAPI(auth);
     }
@@ -145,7 +145,7 @@ class Shopify {
 
     async listThemes() {
         const data = await this.shopifyAPI.getThemes();
-        data.themes.forEach(t => t.handle = Shopify.handleName(t.name));
+        data.themes.forEach(t => t.handle = ShopifyCore.handleName(t.name));
         return data.themes;
     }
 
@@ -156,7 +156,7 @@ class Shopify {
         return res.filter(t =>
             (!name && t.role === 'main')
             || (Number.isInteger(name) && t.id === name)
-            || (name && t.handle === Shopify.handleName(name))
+            || (name && t.handle === ShopifyCore.handleName(name))
         )[0];
     }
 
@@ -646,6 +646,7 @@ class Shopify {
         blogs.forEach(b => b.key = path.join(baseDir, b.handle));
         return blogs;
     }
+
     async listBlogArticles(blog) {
         if (!blog) {
             const blogs = await this.listBlogs();
@@ -653,7 +654,7 @@ class Shopify {
         }
 
         const blogs = await this.listBlogs();
-        const blogDetails = blogs.filter(b => Number.isInteger(blog) ? b.id === blog : b.handle === Shopify.handleName(blog))[0];
+        const blogDetails = blogs.filter(b => Number.isInteger(blog) ? b.id === blog : b.handle === ShopifyCore.handleName(blog))[0];
         blogDetails.articles = [];
         const articles = blogDetails.articles;
         let data = null;
@@ -771,7 +772,7 @@ class Shopify {
                 remoteArticle.published = (!!remoteArticle.published_at);
 
                 //normalize the basics
-                localArticle.handle = Shopify.handleName(handle);
+                localArticle.handle = ShopifyCore.handleName(handle);
                 localArticle.id = remoteArticle.id;
 
                 if (!isSame(remoteArticle, localArticle, PAGES_IGNORE_ATTRIBUTES_EXT)) {
@@ -793,7 +794,7 @@ class Shopify {
             delete blogArticle.id;
             if (!detail.published) delete blogArticle.published_at;
             blogArticle.published = file.startsWith("drafts");
-            blogArticle.handle = Shopify.handleName(file.replace(/drafts[\/\\]/, ""));
+            blogArticle.handle = ShopifyCore.handleName(file.replace(/drafts[\/\\]/, ""));
 
             console.log(`CREATE blogs/${blogDetails.handle}/${file}`);
             await this.shopifyAPI.createBlogArticle(blogArticle);
@@ -869,4 +870,4 @@ class Shopify {
     }
 }
 
-module.exports = Shopify;
+module.exports = ShopifyCore;
