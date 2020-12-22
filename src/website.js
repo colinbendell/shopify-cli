@@ -14,23 +14,24 @@ function getShopify() {
     return _shopify;
 }
 
-function cmdToOptions(options, theme) {
-    program.assets = false
-    program.menus = false
-    program.redirects = false
-    program.scripts = false
-    program.pages = false
-    program.blogs = false
-    program[options.parent?.args[0] || 'assets'] = true;
-
-    if (theme) options.parent.theme = theme;
-    return options.parent;
+function setCommand(options, theme) {
+    if (program.hasOwnProperty(options.name())) {
+        program.assets = false
+        program.menus = false
+        program.redirects = false
+        program.scripts = false
+        program.pages = false
+        program.blogs = false
+        program[options?.name() || 'assets'] = true;
+    }
 }
 
 async function list(theme, options) {
     const shopify = getShopify();
-    if ((options.parent?.args[0] === "list" && !theme)
-        || options.parent?.args[0] === "themes") {
+    if (!options && !!theme) { options = theme; theme = null }
+    if (options?.name()  !== 'list') setCommand(options);
+
+    if (options?.name() === "themes" || (options?.name()  === 'list' && !theme)) {
         //special case where we list themes as default when no them provided and when not running in a sub command
         const themes = await shopify.listThemes();
         for (const theme of themes || []) {
@@ -43,17 +44,9 @@ async function list(theme, options) {
             const themeAssets = await shopify.listAssets(currTheme.id);
             themeAssets.assets.forEach(item => console.log(`${item.key}`));
         }
-        if (program.scripts) {
-            const scripts = await shopify.listScriptTags();
-            scripts.forEach(item => console.log(`${item.src}`));
-        }
         if (program.menus) {
             const menus = await shopify.listMenus().catch(e => {}) || [];
             menus.forEach(item => console.log(`${item.key}`));
-        }
-        if (program.redirects) {
-            const redirects = await shopify.listRedirects();
-            redirects.forEach(item => console.log(`${item.path} => ${item.target}`));
         }
         if (program.pages) {
             const pages = await shopify.listPages();
@@ -63,31 +56,53 @@ async function list(theme, options) {
             const blogArticles = await shopify.listBlogArticles();
             blogArticles.forEach(blog => blog.articles.forEach(item => console.log(`${blog.key}/${item.key}.html`)));
         }
+        if (program.scripts) {
+            const scripts = await shopify.listScriptTags();
+            scripts.forEach(item => console.log(`<script src=${item.src}>`));
+        }
+        if (program.redirects) {
+            const redirects = await shopify.listRedirects();
+            redirects.forEach(item => console.log(`${item.path} (302) => ${item.target}`));
+        }
     }
 }
 
-async function pull(options) {
+async function pull(theme, options) {
     const shopify = getShopify();
+
+    if (!options && !!theme) { options = theme; theme = null }
+    if (options?.name()  !== 'pull') setCommand(options);
+
     const filter = {
-        createdAt: options.filterCreated
+        createdAt: options.filterCreated ?? options.parent.filterCreated
     }
-    if (program.assets) await shopify.pullAssets(options.theme, program.outputDir, options.force, options.dryrun, filter);
-    if (program.scripts) await shopify.pullScriptTags(program.outputDir, options.force, options.dryrun, filter);
-    if (program.menus) await shopify.pullMenus(program.outputDir, options.force, options.dryrun, filter);
-    if (program.redirects && !options.filterCreated) await shopify.pullRedirects(program.outputDir, options.force, options.dryrun);
-    if (program.pages) await shopify.pullPages(program.outputDir, options.force, options.dryrun, filter);
-    if (program.blogs) await shopify.pullBlogArticles(program.outputDir, null, options.force, options.dryrun, filter);
+    const dryrun = options.dryrun ?? options.parent.dryrun;
+    const force = options.force ?? options.parent.force;
+
+    if (program.assets) await shopify.pullAssets(theme, program.outputDir, force, dryrun, filter);
+    if (program.menus) await shopify.pullMenus(program.outputDir, force, dryrun, filter);
+    // redirects don't retain create/update dates
+    if (program.pages) await shopify.pullPages(program.outputDir, force, dryrun, filter);
+    if (program.blogs) await shopify.pullBlogArticles(program.outputDir, null, force, dryrun, filter);
+    if (program.redirects && !filter.createdAt) await shopify.pullRedirects(program.outputDir, force, dryrun);
+    if (program.scripts) await shopify.pullScriptTags(program.outputDir, force, dryrun, filter);
 }
 
-async function push(options) {
+async function push(theme, options) {
     const shopify = getShopify();
+    if (!options && !!theme) { options = theme; theme = null }
+    if (options?.name()  !== 'pull') setCommand(options);
+
+    const dryrun = options.dryrun ?? options.parent.dryrun;
+    const force = options.force ?? options.parent.force;
+
     await shopify.initTheme(options.theme);
-    if (program.assets) await shopify.pushAssets(options.theme, program.outputDir);
-    if (program.scripts) await shopify.pushScriptTags(program.outputDir);
-    // if (program.menus) await shopify.pushMenus(program.outputDir);
-    if (program.redirects) await shopify.pushRedirects(program.outputDir);
-    if (program.pages) await shopify.pushPages(program.outputDir);
-    if (program.blogs) await shopify.pushBlogArticles(program.outputDir);
+    if (program.assets) await shopify.pushAssets(options.theme, program.outputDir, force, dryrun);
+    // if (program.menus) await shopify.pushMenus(program.outputDir, force, dryrun);
+    if (program.pages) await shopify.pushPages(program.outputDir, force, dryrun);
+    if (program.blogs) await shopify.pushBlogArticles(program.outputDir, force, dryrun);
+    if (program.redirects) await shopify.pushRedirects(program.outputDir, force, dryrun);
+    if (program.scripts) await shopify.pushScriptTags(program.outputDir, force, dryrun);
 }
 
 async function publish(options) {
@@ -97,15 +112,17 @@ async function publish(options) {
 
 async function init(theme, options) {
     const shopify = getShopify();
-    console.log('init');
+    console.log('Initializing Local Environment...');
     const currTheme = await shopify.getTheme(theme);
     const changeSet = await shopify.getChangeSets(theme);
 
-    if (options.simple) {
-        [...changeSet.keys()].sort().forEach(k => console.log(k));
-    }
-    else if (options.details) {
+    console.log('Calculating Change Sets:');
+    if (options.details) {
         console.log(Object.fromEntries([...changeSet.entries()].sort()));
+    }
+    else {
+        [...changeSet.keys()].sort().forEach(k => console.log(`${k} (${(changeSet.get(k) || []).size})`));
+
     }
 
     if (options.git) {
@@ -165,41 +182,43 @@ program
 
 const listCmd = program
     .command('list [theme]')
-    .option('--changes', 'show unique change dates', false)
-    .option('--details', 'expand the output to include details', false)
-    .option('--git', 'expand the output to include details', false)
     .action(list);
-listCmd.command('themes').action(options => list(null, options));
-listCmd.command('assets [theme]').action((theme, options)=>list(theme, cmdToOptions(options)));
-listCmd.command('scripts').action(options =>list(null, cmdToOptions(options)));
-listCmd.command('menus') .action(options =>list(null, cmdToOptions(options)));
-listCmd.command('redirects').action(options => list(null, cmdToOptions(options)));
-listCmd.command('pages').action(options => list(null, cmdToOptions(options)));
-listCmd.command('blogs').action(options => list(null, cmdToOptions(options)));
+listCmd.command('themes').action(list);
+listCmd.command('assets [theme]').action(list);
+listCmd.command('scripts').action(list);
+listCmd.command('menus').action(list);
+listCmd.command('redirects').action(list);
+listCmd.command('pages').action(list);
+listCmd.command('blogs').action(list);
 
 const pullCmd = program
-    .command('pull')
-    .description('pull all remote shopify changes locally')
-    .option('--theme <name>', 'use a specific theme (defaults to the theme that is currently active)')
+    .command('pull [theme]')
+    .description('pull all remote shopify changes locally (defaults to the currently active theme)')
     .option('--force', 'force download all files', false)
     .option('-n, --dry-run', "dont't save files" , false)
     .option('--filter-created <timestamp>', "Only pull files present at given timestamp")
     .action(pull);
-pullCmd.command('assets [theme]').action((theme, options) => pull(cmdToOptions(options, theme)));
-pullCmd.command('scripts').action(options => pull(cmdToOptions(options)));
-pullCmd.command('menus') .action(options => pull(cmdToOptions(options)));
-pullCmd.command('redirects').action(options => pull(cmdToOptions(options)));
-pullCmd.command('pages').action(options => pull(cmdToOptions(options)));
-pullCmd.command('blogs').action(options => pull(cmdToOptions(options)));
+pullCmd.command('assets [theme]').action(pull);
+pullCmd.command('scripts').action(pull);
+pullCmd.command('menus') .action(pull);
+pullCmd.command('redirects').action(pull);
+pullCmd.command('pages').action(pull);
+pullCmd.command('blogs').action(pull);
 
-program
-    .command('push')
-    .description('push all local changes up to shopify')
-    .option('--theme <name>', 'use a specific theme (defaults to the theme that is currently active)')
+const pushCmd = program
+    .command('push [theme]')
+    .description('push all local changes up to shopify (defaults to the theme that is currently active)')
     .option('--zip <file>', 'use a zip file as the basis for the new theme (instead of the local filesystem)')
     .option('--force', 'force download all files', false)
     .option('-n, --dry-run', "dont't save files" , false)
     .action(push);
+pushCmd.command('assets [theme]').action(push);
+pushCmd.command('scripts').action(push);
+pushCmd.command('menus') .action(push);
+pushCmd.command('redirects').action(push);
+pushCmd.command('pages').action(push);
+pushCmd.command('blogs').action(push);
+
 
 program
     .command('init <theme>')
