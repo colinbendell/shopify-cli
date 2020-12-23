@@ -1,104 +1,135 @@
-function forceKeyPrioritySort(keys = ['name', 'value', 'errors']) {
-    let objectKeyOrder = new Map();
-    for (let i = 0; i < keys.length; i++)
+function priorityKeySorter(keys = ['name', 'value', 'errors']) {
+    if (!keys || keys.length === 0) return simpleObjectKeySort;
+
+    // we prefix priority keys with 001, 002, 003, etc so that when sorting they will bubble to the top
+    const objectKeyOrder = new Map();
+    for (let i = 0; i < keys.length; i++) {
         objectKeyOrder.set(keys[i], `000${i}`.slice(-3));
+    }
     return (a, b) => {
-        if (objectKeyOrder.size <= 0) return a.localeCompare(b);
         return `${objectKeyOrder.get(a)}${a}`.localeCompare(`${objectKeyOrder.get(b)}${b}`);
     };
 }
 
-function defaultSortObjectKey(a,b) {
+function simpleObjectKeySort(a, b) {
     return a.localeCompare(b)
 }
 
-function stringify (obj, options = {margins: false, indent: 2, maxLength: 80, wrapSimpleArray: true, sortObjectKey: (a,b) => a.localeCompare(b)}) {
-    options = options || {};
-    let indent = JSON.stringify([1], null, options.indent || 2).slice(2, -3);
-    let addMargin = options.margins || false;
-    let maxLength = (indent === '' ? Infinity : options.maxLength || 80);
-    let wrapSimpleArray = options.wrapSimpleArray || false;
-    let sortObjectKeyFunction = !!options.sortObjectKey && typeof options.sortObjectKey === 'function' ? options.sortObjectKey : defaultSortObjectKey;
-    let sortObjectKey = !!options.sortObjectKey;
+// Note: This regex matches even invalid JSON strings, but since we’re
+// working on the output of `JSON.stringify` we know that only valid strings
+// are present (unless the user supplied a weird `options.indent` but in
+// that case we don’t care since the output would be invalid anyway).
+const stringBlockOrJsonChar = /("(?:[^\\"]|\\.)*")|[:,\][}{]/g;
+const stringBlockOrMinorJsonChar = /("(?:[^\\"]|\\.)*")|[:,]/g;
+const allJsonCharPadding = new Map([
+    ['{', '{ '], ['[', '[ '],
+    ['}', ' }'], [']', ' ]'],
+    [',', ', '], [':', ': ']
+]);
+const minorJsonPadding = new Map([[',', ', '],[':', ': ']]);
+function addPadding(string, padBlocks) {
+    if (padBlocks) {
+        return string.replace(stringBlockOrJsonChar, match => allJsonCharPadding.get(match) ?? match);
+    }
+    return string.replace(stringBlockOrMinorJsonChar, match => minorJsonPadding.get(match) ?? match);
+}
 
-    return (function _stringify (obj, currentIndent, reserved) {
+
+function stringify(obj, indentSpaces = 2, maxLineLength = 80, options = {
+    sortKeys: true,
+    forceKeyOrder:['name', 'value', 'errors'],
+    wrapSimpleArray: true,
+    padMajorBlocks: true
+}) {
+
+    const indent = ' '.repeat(indentSpaces ?? 2);
+    const padBlocks = options.padMajorBlocks || false;
+    const maxLength = (indent === '' ? Infinity : maxLineLength || 80);
+    const wrapSimpleArray = options?.wrapSimpleArray || true;
+    const sortObjectKeyFunction = priorityKeySorter(options?.forceKeyOrder || []);
+    const sortKeys = Boolean(options?.sortKeys);
+
+    function _stringify(obj, leftMargin, rightMarginSize) {
+        //defer to the .toJSON() function if it exists
         if (obj && typeof obj.toJSON === 'function') {
             obj = obj.toJSON();
         }
 
-        let string = JSON.stringify(obj);
-
-        if (string === undefined) {
-            return string
+        // upgrade Map to Object
+        if (obj instanceof Map) {
+            obj = Object.fromEntries(obj.entries());
         }
 
-        let length = maxLength - currentIndent.length - reserved;
+        // trial JSON
+        let string = JSON.stringify(obj);
 
-        if (!sortObjectKey && string.length <= length) {
-            let prettified = prettyMargins(string, addMargin);
-            if (prettified.length <= length) {
-                return prettified
+        // quick exit for undefined
+        if (string === undefined) { return string }
+
+        // another quick exit if we aren't sorting Keys (or if it's a simple object)
+        if (!sortKeys || typeof obj !== 'object') {
+            const availableLength = maxLength - leftMargin.length - rightMarginSize;
+            if (string.length <= availableLength) {
+                let prettified = addPadding(string, padBlocks).trim();
+                if (prettified.length <= availableLength) {
+                    return prettified
+                }
             }
         }
 
         if (typeof obj === 'object' && obj !== null) {
-            let nextIndent = currentIndent + indent;
+            const nextIndent = leftMargin + indent;
             let items = [];
             let delimiters;
-            let comma = function (array, index) {
+
+            const needsCommaMargin = function (array, index) {
                 return (index === array.length - 1 ? 0 : 1)
             };
+            const wrap = (items) => {
+                const newItems = [];
+                items.forEach(v => {
+                    if (newItems.length > 0 && nextIndent.length + newItems[newItems.length - 1].length + v.length < maxLength) {
+                        newItems.push(newItems.pop() + ", " + v);
+                    }
+                    else {
+                        newItems.push(v);
+                    }
+                });
+                return newItems;
+            }
 
-            if (Array.isArray(obj)) {
-                let isSimpleArray = true;
-                for (let index = 0; index < obj.length; index++) {
+
+            if (Array.isArray(obj) || obj instanceof Set) {
+                const wrapArray = wrapSimpleArray
+                    && [...obj.values()].reduce((last, curr) => last && (curr === null || curr === undefined || ["string", "number", "boolean"].includes(typeof curr)));
+
+                for (const v of obj.values()) {
                     items.push(
-                        _stringify(obj[index], nextIndent, comma(obj, index)) || 'null'
+                        _stringify(v, nextIndent, 2) || 'null' // convert undefined to null
                     );
-                    isSimpleArray &= (typeof obj[index] === "string" || typeof obj[index] === "number" || typeof obj[index] === "boolean");
                 }
 
-                if (wrapSimpleArray && isSimpleArray) {
-                    let newItems = [];
-                    items.forEach(v => {
-                        if (newItems.length > 0 && nextIndent.length + newItems[newItems.length - 1].length + v.length < maxLength) {
-                            newItems.push(newItems.pop() + ", " + v);
-                        }
-                        else {
-                            newItems.push(v);
-                        }
-                    });
-                    items = newItems;
-                }
+                if (wrapArray) items = wrap(items);
                 delimiters = '[]'
-            } else {
-                let isSimpleObject = true;
+            }
+            else {
+                const wrapArray = wrapSimpleArray
+                    && Object.values(obj).filter(v => v !== undefined)
+                        .reduce((last, curr) => last && (curr === null || ["string", "number", "boolean"].includes(typeof curr)), true);
                 Object.keys(obj)
                     .sort(sortObjectKeyFunction)
                     .forEach(function (key, index, array) {
-
-                        let keyPart = JSON.stringify(key) + ': ';
-                        let value = _stringify(obj[key], nextIndent,
-                            keyPart.length + comma(array, index));
+                        const keyPart = JSON.stringify(key) + ': ';
+                        const value = _stringify(obj[key], nextIndent, keyPart.length + needsCommaMargin(array, index));
                         if (value !== undefined) {
                             items.push(keyPart + value);
-                            isSimpleObject &= (typeof obj[key] === "string" || typeof obj[key] === "number" || typeof obj[key] === "boolean");
                         }
                     });
-                if (wrapSimpleArray && isSimpleObject) {
-                    let newItems = [];
-                    items.forEach(v => {
-                        if (newItems.length > 0 && nextIndent.length + newItems[newItems.length - 1].length + v.length < maxLength)
-                            newItems.push(newItems.pop() + ", " + v);
-                        else
-                            newItems.push(v);
-                    });
-                    items = newItems;
-                }
+                if (wrapArray) items = wrap(items);
                 delimiters = '{}'
             }
 
-            if (items.join(', ').length + currentIndent.length + 2 < maxLength) {
+            if (items.join(', ').length + leftMargin.length + 2 < maxLength) {
                 return [
                     delimiters[0],
                     items.join(', '),
@@ -110,37 +141,14 @@ function stringify (obj, options = {margins: false, indent: 2, maxLength: 80, wr
                     delimiters[0],
                     indent + items.join(',\n' + nextIndent),
                     delimiters[1]
-                ].join('\n' + currentIndent)
+                ].join('\n' + leftMargin)
             }
         }
 
         return string
-    }(obj, '', 0))
+    }
+
+    return _stringify(obj, '', 0)
 }
 
-// Note: This regex matches even invalid JSON strings, but since we’re
-// working on the output of `JSON.stringify` we know that only valid strings
-// are present (unless the user supplied a weird `options.indent` but in
-// that case we don’t care since the output would be invalid anyway).
-const stringOrChar = /("(?:[^\\"]|\\.)*")|[:,\][}{]/g;
-
-function prettyMargins (string, addMargin) {
-    let m = addMargin ? ' ' : '';
-    let tokens = {
-        '{': '{' + m,
-        '[': '[' + m,
-        '}': m + '}',
-        ']': m + ']',
-        ',': ', ',
-        ':': ': '
-    };
-    return string.replace(stringOrChar, function (match, string) {
-        return string ? match : tokens[match]
-    })
-}
-
-module.exports = {
-    stringify: stringify,
-    defaultSortObjectKey: defaultSortObjectKey,
-    forceKeyPrioritySort: forceKeyPrioritySort
-};
+module.exports = {stringify};
