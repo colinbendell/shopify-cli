@@ -78,12 +78,12 @@ async function pull(theme, options) {
     }
     const dryrun = options.dryrun ?? options.parent.dryrun;
     const force = options.force ?? options.parent.force;
-
+console.log(program.outputDir)
     if (program.assets) await shopify.pullAssets(theme, program.outputDir, force, dryrun, filter);
-    if (program.menus) await shopify.pullMenus(program.outputDir, force, dryrun, filter);
-    // redirects don't retain create/update dates
+    if (program.menus) await shopify.pullMenus(program.outputDir, force, dryrun, filter).catch(e => e); //TODO: fix auth detection
     if (program.pages) await shopify.pullPages(program.outputDir, force, dryrun, filter);
     if (program.blogs) await shopify.pullBlogArticles(program.outputDir, null, force, dryrun, filter);
+    // redirects don't retain create/update dates
     if (program.redirects && !filter.createdAt) await shopify.pullRedirects(program.outputDir, force, dryrun);
     if (program.scripts) await shopify.pullScriptTags(program.outputDir, force, dryrun, filter);
 }
