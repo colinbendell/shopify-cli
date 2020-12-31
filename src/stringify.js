@@ -101,7 +101,7 @@ function stringify(obj, indentSpaces = 2, maxLineLength = 80, options = {
 
             if (Array.isArray(obj) || obj instanceof Set) {
                 const wrapArray = wrapSimpleArray
-                    && [...obj.values()].reduce((last, curr) => last && (curr === null || curr === undefined || ["string", "number", "boolean"].includes(typeof curr)));
+                    && [...obj.values()].reduce((last, curr) => last && (curr === null || curr === undefined || ["string", "number", "boolean"].includes(typeof curr)), true);
 
                 for (const v of obj.values()) {
                     items.push(
