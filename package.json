@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "description": "Gti Sync service for Shopify Online Store",
   "main": "src/cli/shopify.js",
-  "bin" : { "shopify-website" : "src/cli/shopify.js"},
+  "bin": {
+    "shopify-website": "src/cli/shopify.js"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "Colin Bendell <colin.bendell@shopify.com> (https://twitter.com/colinbendell)",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "commander": "^6.2.0",
     "fetch-h2": "^2.5.1"
