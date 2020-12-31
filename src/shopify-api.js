@@ -375,6 +375,60 @@ class ShopifyAPI {
     async deleteMenu(menuID) {
         return await this.#delete(`/admin/api/${API_VERSION}/menus/${menuID}.json`);
     }
+
+    //
+    // Products
+    //
+
+    async getProducts(minProductID) {
+        return await this.#get(`/admin/api/${API_VERSION}/products.json?limit=250${minProductID >0 ? "&since_id=" + minProductID : ""}`);
+    }
+
+    async getProductsCount() {
+        return await this.#get(`/admin/api/${API_VERSION}/products/count.json`);
+    }
+
+    async getProduct(productID) {
+        return await this.#get(`/admin/api/${API_VERSION}/products/${productID}.json`);
+    }
+
+    async createProduct(product) {
+        return await this.#post(`/admin/api/${API_VERSION}/products.json`, {product});
+    }
+
+    async updateProduct(productID, product) {
+        return await this.#put(`/admin/api/${API_VERSION}/products/${productID}.json`, {product});
+    }
+    async deleteProduct(productID) {
+        return await this.#delete(`/admin/api/${API_VERSION}/products/${productID}.json`);
+    }
+
+    //
+    // ProductImages
+    //
+
+    async getProductImages(productID, minImageID) {
+        return await this.#get(`/admin/api/${API_VERSION}/products/${productID}/images.json?limit=250${minImageID >0 ? "&since_id=" + minImageID : ""}`);
+    }
+
+    async getProductImagesCount(productID) {
+        return await this.#get(`/admin/api/${API_VERSION}/products/${productID}/images/count.json`);
+    }
+
+    async getProductImage(productID, imageID) {
+        return await this.#get(`/admin/api/${API_VERSION}/products/${productID}/images/${imageID}.json`);
+    }
+
+    async createProductImage(productID, image) {
+        return await this.#post(`/admin/api/${API_VERSION}/products/${productID}/images.json`, {image});
+    }
+
+    async updateProductImage(productID, imageID, productImage) {
+        return await this.#put(`/admin/api/${API_VERSION}/products/${productID}/images/${imageID}.json`, {productImage});
+    }
+    async deleteProductImage(productImageID) {
+        return await this.#delete(`/admin/api/${API_VERSION}/productImages/${productImageID}.json`);
+    }
 }
 
 module.exports = ShopifyAPI;

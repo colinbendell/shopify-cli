@@ -868,6 +868,21 @@ class ShopifyCore {
 
         return menus;
     }
+
+    //
+    // Products
+    //
+    async listProducts(baseDir = "products") {
+        let data = null;
+        const products = [];
+        while (!data || data.products.length  === 250) {
+            const maxID = Math.max(0, ...products.map(r => r.id));
+            data = await this.shopifyAPI.getProducts(maxID);
+            products.push(...data.products);
+        }
+        //products.forEach(b => b.key = path.join(baseDir, b.handle));
+        return products;
+    }
 }
 
 module.exports = ShopifyCore;
