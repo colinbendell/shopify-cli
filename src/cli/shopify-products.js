@@ -20,6 +20,18 @@ async function list() {
     products.forEach(item => console.log(stringify(item)));
 }
 
+async function pull(options) {
+    const shopify = getShopify();
+
+    const filter = {
+        createdAt: options.filterCreated ?? options.parent.filterCreated
+    }
+    const dryrun = options.dryrun ?? options.parent.dryrun;
+    const force = options.force ?? options.parent.force;
+
+    await shopify.pullProducts(program.outputDir, force, dryrun, filter);
+}
+
 program
     .version('1.0');
 
@@ -31,6 +43,14 @@ program
 program
     .command('list')
     .action(list);
+
+program
+    .command('pull')
+    .description('pull all remote shopify changes locally (defaults to the currently active theme)')
+    .option('--force', 'force download all files', false)
+    .option('-n, --dry-run', "dont't save files" , false)
+    .option('--filter-created <timestamp>', "Only pull files present at given timestamp")
+    .action(pull);
 
 if (process.argv.indexOf("--debug") === -1) console.debug = function () {};
 if (process.argv.indexOf("--verbose") === -1 && process.argv.indexOf("--debug") === -1) console.info = function () {};

@@ -883,6 +883,130 @@ class ShopifyCore {
         //products.forEach(b => b.key = path.join(baseDir, b.handle));
         return products;
     }
+
+
+    async pullProducts(destDir = "./shopify", force = false, dryrun=false, filter= null) {
+        let products = await this.listProducts();
+
+        //todo: turn this into a generator
+        const filterDate = Date.parse(filter?.createdAt);
+        if (filterDate) {
+            products = products.filter(item => filterDate >= Date.parse(item.updated_at));
+        }
+
+        const valueToCSV = function(value) {
+            if (!value) return "";
+
+            if (typeof value === "string") {
+                if (/[",\n\r]/.test(value)) {
+                    return `"${value.replace(/"/g, '""')}"`;
+                }
+            }
+            else if (typeof value === "object") {
+                return `"${stringify(value).replace(/"/g, '""')}"`;
+            }
+            return value.toString().trim();
+        }
+
+        const PRODUCT_CSV_HEADER = [
+            "Handle","Title","Body (HTML)","Vendor","Type","Tags","Published",
+            "Option1 Name","Option1 Value","Option2 Name","Option2 Value","Option3 Name","Option3 Value",
+            "Variant SKU","Variant Grams","Variant Inventory Tracker","Variant Inventory Policy","Variant Fulfillment Service",
+            "Variant Price","Variant Compare At Price","Variant Requires Shipping","Variant Taxable","Variant Barcode",
+            "Image Src",
+            // "Image Position",
+            "Image Alt Text",
+            // "Gift Card","SEO Title","SEO Description","Google Shopping / Google Product Category","Google Shopping / Gender",
+            // "Google Shopping / Age Group","Google Shopping / MPN","Google Shopping / AdWords Grouping","Google Shopping / AdWords Labels",
+            // "Google Shopping / Condition","Google Shopping / Custom Product","Google Shopping / Custom Label 0","Google Shopping / Custom Label 1",
+            // "Google Shopping / Custom Label 2","Google Shopping / Custom Label 3","Google Shopping / Custom Label 4",
+            // "Variant Image",
+            "Variant Weight",
+            "Variant Weight Unit",
+            // "Variant Tax Code",
+            // "Cost per item",
+            "Status"
+        ].map(valueToCSV).join(',');
+
+        const csvData = [PRODUCT_CSV_HEADER];
+
+        for (const product of products) {
+            product.options = (product.options || []).sort((a,b) => a.position - b.position);
+            product.variants = (product.variants || []).sort((a,b) => a.position - b.position);
+
+            const hasVariants = product.options.length > 1
+            || (product.options[0] && (product.options[0])?.name !== "Title") //TODO: what if product.options is null?
+            || (product.options[0] && (product.options[0])?.values[0] !== "Default Title");
+
+            for (const variant of product.variants || []) {
+                csvData.push(
+                    [
+                        product.handle,
+                        product.title,
+                        product.body_html,
+                        product.vendor,
+                        product.product_type,
+                        product.tags,
+                        Boolean(!!product.published_at),
+                        hasVariants ? product.options[0]?.name : null,
+                        hasVariants ? variant.option1 : null,
+                        product.options[1]?.name,
+                        variant.option2,
+                        product.options[2]?.name,
+                        variant.option3,
+                        variant.sku,
+                        // variant.grams,
+                        // "Variant Inventory Tracker",
+                        variant.inventory_policy,
+                        variant.fulfillment_service,
+                        variant.price,
+                        variant.compare_at_price,
+                        variant.requires_shipping,
+                        Boolean(variant.taxable),
+                        variant.barcode,
+                        product.images?.map(i => i.src).join(","),
+                        // product.image?.position,
+                        product.images?.map(i => i.alt),
+                        // "Gift Card",
+                        // "SEO Title",
+                        // "SEO Description",
+                        // "Google Shopping / Google Product Category",
+                        // "Google Shopping / Gender",
+                        // "Google Shopping / Age Group",
+                        // "Google Shopping / MPN",
+                        // "Google Shopping / AdWords Grouping",
+                        // "Google Shopping / AdWords Labels",
+                        // "Google Shopping / Condition",
+                        // "Google Shopping / Custom Product",
+                        // "Google Shopping / Custom Label 0",
+                        // "Google Shopping / Custom Label 1",
+                        // "Google Shopping / Custom Label 2",
+                        // "Google Shopping / Custom Label 3",
+                        // "Google Shopping / Custom Label 4",
+                        // "Variant Image",
+                        product.images?.filter(i => i.id === variant.image_id).map(i => i.src)[0],
+                        variant.weight, //TODO: not standard in CSV export
+                        variant.weight_unit,
+                        // "Variant Tax Code",
+                        // "Cost per item",
+                        // variant.inventory_management,
+                        // variant.inventory_quantity,
+                        // variant.old_inventory_quantity
+                        variant.status,
+                    ].map(valueToCSV).join(',')
+                )
+            }
+        }
+        const data = csvData.join('\n');
+        const filename = path.join(destDir, "products", "products.csv");
+
+        if (force || await md5File(filename) !== md5(data)) {
+            console.log(`SAVING: products.csv`);
+            if (!dryrun) await this.#saveFile(filename, data);
+        }
+        return products;
+
+    }
 }
 
 module.exports = ShopifyCore;
