@@ -358,15 +358,12 @@ class ShopifyCore {
     // Redirects
     //
     async listRedirects() {
-        let count = null;
         const redirects = [];
-        while (count === null || redirects.length < count) {
+        let data = null
+        while (!data || data?.redirects.length === 250) {
             const maxID = Math.max(0, ...redirects.map(r => r.id));
-            const data = await this.shopifyAPI.getRedirects(maxID);
+            data = await this.shopifyAPI.getRedirects(maxID);
             redirects.push(...data.redirects);
-            if (count === null) {
-                count = redirects.length < 250 ? redirects.length : (await this.shopifyAPI.getRedirectsCount()).count;
-            }
         }
         return redirects;
     }
@@ -435,13 +432,13 @@ class ShopifyCore {
     // Script Tags
     //
     async listScriptTags() {
-        let count = null;
+
         const scripts = [];
-        while (count === null || scripts.length < count) {
+        let data = null;
+        while (!data || data?.script_tags.length === 250) {
             const maxID = Math.max(0, ...scripts.map(r => r.id));
-            const data = await this.shopifyAPI.getScriptTags(maxID)
+            data = await this.shopifyAPI.getScriptTags(maxID)
             scripts.push(...data.script_tags);
-            if (count === null) count = scripts.length < 250 ? scripts.length : (await this.shopifyAPI.getScriptTagsCount()).count;
         }
         return scripts;
     }
