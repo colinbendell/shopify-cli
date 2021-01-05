@@ -87,16 +87,29 @@ class ShopifyAPI {
             });
         console.debug(res.status + " " + res.statusText);
         console.debug(Object.fromEntries(res.headers.entries()));
-        if (res.status >= 500) {
-            //TODO: how do we get out of infinite retry?
-            console.error(`RETRY: ${method} ${path} (${res.headers.get('status') || res.status + " " + res.statusText})`);
-            await sleep(1000);
-            return await this.#request(method, path, body, maxTTL);
+
+        // need to consume the body so that the stream is completed and not left dangling.
+        if (/application\/json/.test(res.headers.get('content-type'))) {
+            const json = await res.json();
+            res._body = json; // stash it for the cache because .json() isn't re-callable
+            console.debug(JSON.stringify(json));
         }
-        if (res.status === 429) {
+        else if (/text/.test(res.headers.get('content-type'))) {
+            const txt = await res.text();
+            res._body = txt; // stash it for the cache because .json() isn't re-callable
+            console.debug(txt);
+        }
+        else {
+            //TODO: what happens if the buffer isn't fully consumed?
+            res._body = res.arrayBuffer();
+        }
+
+        if (res.status === 429 || res.status >= 500) {
             //TODO: how do we get out of infinite retry?
-            console.error(`RETRY: ${method} ${path} (${res.headers.get('status') || res.status + " " + res.statusText})`);
-            await sleep(1000);
+            const retryTime = res?.headers?.get('retry-after')*1000 || 1000; // default 1s retry time
+            const statusLine = res.headers.get('status') || res.status + " " + res.statusText;
+            console.error(`RETRY ${retryTime/1000}s: ${method} ${path} (${statusLine.trim()})`);
+            await sleep(Math.min(retryTime, 10 * 1000)); // don't let the retry time exceed 10s
             return await this.#request(method, path, body, maxTTL);
         }
         else if (res.status === 404) {
@@ -121,19 +134,7 @@ class ShopifyAPI {
             }
         }
 
-        if (/application\/json/.test(res.headers.get('content-type'))) {
-            const json = await res.json();
-            res._body = json; // stash it for the cache because .json() isn't re-callable
-            console.debug(JSON.stringify(json));
-            return json;
-        }
-        else if (/text/.test(res.headers.get('content-type'))) {
-            const txt = await res.text();
-            res._body = txt; // stash it for the cache because .json() isn't re-callable
-            console.debug(txt);
-            return txt;
-        }
-        return await res.arrayBuffer();
+        return res._body;
     }
 
     //
