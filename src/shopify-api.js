@@ -8,21 +8,19 @@ class ShopifyAPI {
     constructor(auth = {path: "~/.shopify", section: 'default'}) {
         let ini = readini(process.env.SHOPIFY_RC || auth.path, process.env.SHOPIFY_SECTION || auth.section);
         this.auth = Object.assign({
-            key: process.env.SHOPIFY_KEY || ini.key,
             password: process.env.SHOPIFY_PASSWORD || ini.password,
             storefront: process.env.SHOPIFY_STOREFRONT_ACCESS_TOKEN || ini.storefront,
             host: process.env.SHOPIFY_HOST || ini.host
         }, auth);
     }
 
-    get #key() { return this.auth.key; }
     get #password() { return this.auth.password; }
     get #storefront() { return this.auth.storefront; }
     set #host(val) { this.auth.host = val; }
     get #host() { return this.auth.host; }
 
     async #get(path = '/', maxTTL = 300) {
-        return await this.#request("GET", path, null, maxTTL);
+        return this.#request("GET", path, null, maxTTL);
     }
 
     async #post(path = '/', body = null) {
@@ -101,7 +99,7 @@ class ShopifyAPI {
         }
         else {
             //TODO: what happens if the buffer isn't fully consumed?
-            res._body = res.arrayBuffer();
+            res._body = Buffer.from(await res.arrayBuffer());
         }
 
         if (res.status === 429 || res.status >= 500) {
@@ -135,6 +133,10 @@ class ShopifyAPI {
         }
 
         return res._body;
+    }
+
+    async getURL(path = '/', maxTTL = 300) {
+        return this.#get(path, maxTTL);
     }
 
     //
