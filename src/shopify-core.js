@@ -86,7 +86,7 @@ class ShopifyCore {
         // we use the current theme to match against other 'draft' themes that are similar to back fill the history
         const currTheme = await this.getTheme(theme);
 
-        // back fill of paralallel theme history includes any theme that had development prior to the creation of the current theme
+        // back fill of parallel theme history includes any theme that had development prior to the creation of the current theme
         let themeAssets = [await this.listAssets(theme, true)].flat()
         themeAssets = themeAssets.filter(
             t => t.id === currTheme.id
