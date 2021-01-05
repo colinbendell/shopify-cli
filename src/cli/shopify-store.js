@@ -71,7 +71,7 @@ async function pull(theme, options) {
     const shopify = getShopify();
 
     if (!options && !!theme) { options = theme; theme = null }
-    if (options?.name()  !== 'pull') setCommand(options);
+    if (options?.name() !== 'pull') setCommand(options);
 
     const filter = {
         createdAt: options.filterCreated ?? options.parent.filterCreated
@@ -120,12 +120,12 @@ async function init(theme, options) {
         console.log(Object.fromEntries([...changeSet.entries()].sort()));
     }
     else {
-        [...changeSet.keys()].sort().forEach(k => console.log(`${k} (${(changeSet.get(k) || []).size})`));
+        [...changeSet.keys()].sort().forEach(k => console.log(`${k} (${(changeSet.get(k) || []).length})`));
 
     }
 
     if (options.git) {
-        const options = {
+        const execOptions = {
             cwd: program.outputDir,
             stdio: 'inherit',
         }
@@ -143,24 +143,24 @@ async function init(theme, options) {
                 if (program.assets) await shopify.pullAssets(themeName, program.outputDir, false, false, filter);
             }
 
-            if (program.menus) await shopify.pullMenus(program.outputDir, false, false, filter);
+            if (program.menus) await shopify.pullMenus(program.outputDir, false, false, filter).catch(e => e); //TODO: fix auth detection
             if (program.pages) await shopify.pullPages(program.outputDir, false, false, filter);
             if (program.blogs) await shopify.pullBlogArticles(program.outputDir, null, false, false, filter);
             if (program.scripts) await shopify.pullScriptTags(program.outputDir, false, false, filter);
-            options.env = Object.assign({
+            execOptions.env = Object.assign({
                 'GIT_COMMITTER_DATE': createdAt,
                 'GIT_AUTHOR_DATE': createdAt
             }, process.env)
             try {
-                child_process.execFileSync('git', ['add', '-A'], options)
-                child_process.execFileSync('git', ['commit', '--allow-empty', '-a', '-m', `Sync with Shopify @ ${createdAt}`], options)
+                child_process.execFileSync('git', ['add', '-A'], execOptions)
+                child_process.execFileSync('git', ['commit', '--allow-empty', '-a', '-m', `Sync with Shopify @ ${createdAt}`], execOptions)
             }
             catch (e) {
                 console.error(e);
             }
         }
+        await pull(options);
     }
-    await pull(options);
 }
 
 program
