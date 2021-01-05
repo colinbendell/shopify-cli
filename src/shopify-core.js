@@ -181,7 +181,8 @@ class ShopifyCore {
         await this.shopifyAPI.createTheme(themeName, 'unpublished', src)
     }
 
-    async #isAssetSame(localFilename, remoteCheckSum, remoteLastModified, remoteSize) {
+    async #isAssetSame(localFilename, remoteCheckSum = null, remoteLastModified = null, remoteSize) {
+        if (remoteLastModified) remoteLastModified = new Date(remoteLastModified).getTime();
         if (!fs.existsSync(localFilename)) return false;
 
         //skip if the checksums aren't any different from remote and local files
@@ -197,7 +198,12 @@ class ShopifyCore {
             localSize = normalizedJSON.length;
         }
 
-        if (localSize === remoteSize && localLastModified + 5*60*1000 >= Date.parse(remoteLastModified)) {
+        if (remoteLastModified && localSize === Number(remoteSize)) {
+            if (localLastModified + 5*60*1000 >= remoteLastModified) {
+                return true
+            }
+        }
+        else if (localSize === Number(remoteSize)) {
             return true;
         }
         return false;
