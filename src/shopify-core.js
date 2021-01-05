@@ -914,7 +914,10 @@ class ShopifyCore {
         const PRODUCT_CSV_HEADER = [
             "Handle","Title","Body (HTML)","Vendor","Type","Tags","Published",
             "Option1 Name","Option1 Value","Option2 Name","Option2 Value","Option3 Name","Option3 Value",
-            "Variant SKU","Variant Grams","Variant Inventory Tracker","Variant Inventory Policy","Variant Fulfillment Service",
+            "Variant SKU",
+            // "Variant Grams",
+            // "Variant Inventory Tracker",
+            "Variant Inventory Policy","Variant Fulfillment Service",
             "Variant Price","Variant Compare At Price","Variant Requires Shipping","Variant Taxable","Variant Barcode",
             "Image Src",
             // "Image Position",
@@ -934,12 +937,12 @@ class ShopifyCore {
         const csvData = [PRODUCT_CSV_HEADER];
 
         for (const product of products) {
-            product.options = (product.options || []).sort((a,b) => a.position - b.position);
-            product.variants = (product.variants || []).sort((a,b) => a.position - b.position);
+            product.options = (product.options || []).sort((a, b) => a.position - b.position);
+            product.variants = (product.variants || []).sort((a, b) => a.position - b.position);
 
             const hasVariants = product.options.length > 1
-            || (product.options[0] && (product.options[0])?.name !== "Title") //TODO: what if product.options is null?
-            || (product.options[0] && (product.options[0])?.values[0] !== "Default Title");
+                || (product.options[0] && (product.options[0])?.name !== "Title") //TODO: what if product.options is null?
+                || (product.options[0] && (product.options[0])?.values[0] !== "Default Title");
 
             for (const variant of product.variants || []) {
                 csvData.push(
@@ -967,9 +970,9 @@ class ShopifyCore {
                         variant.requires_shipping,
                         Boolean(variant.taxable),
                         variant.barcode,
-                        product.images?.map(i => i.src).join(","),
+                        product.images?.map(i => i.src).join("\n"),
                         // product.image?.position,
-                        product.images?.map(i => i.alt),
+                        product.images?.map(i => i.alt ?? "").join("\n").trim(),
                         // "Gift Card",
                         // "SEO Title",
                         // "SEO Description",
@@ -1007,8 +1010,29 @@ class ShopifyCore {
             console.log(`SAVING: products.csv`);
             if (!dryrun) await this.#saveFile(filename, data);
         }
-        return products;
 
+        await Promise.all(products.map(async product =>
+            Promise.all(product.images.map(async image => {
+                // most likely in the format of: https://cdn.shopify.com/s/files/1/0716/7497/products/other-stuff-wood-soap-dish-2.jpg?v=1605121789
+                const [,file,v] = image.src?.match(/^(?:https?:\/\/[^\/]+)?[^?]*\/([^\/?]*)(?:\?.*(?:v=(\d+)))?$/) || []
+                try {
+                    const head = await fetch(image.src, {method: "HEAD"});
+                    const remoteBytes = head.headers.get('content-length');
+                    const localFilename = path.join(destDir, "products", product.handle, file);
+
+                    if (force || !await this.#isAssetSame(localFilename, null, image.updated_at, remoteBytes)) {
+                        const res = await this.shopifyAPI.getURL(image.src);
+                        console.log(`SAVING: ${path.join("products", product.handle, file)}`);
+                        if (!dryrun) await this.#saveFile(localFilename, res);
+                    }
+                }
+                catch (e) {
+                    console.error(`ERROR: ${image.src}`);
+                    console.error(e);
+                }
+            }
+        ))));
+        return products;
     }
 }
 
