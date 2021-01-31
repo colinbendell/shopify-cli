@@ -99,6 +99,7 @@ class ShopifyCore {
         // redirects aren't update/create time versioned
         // const redirects = await shopify.listRedirects();
 
+        const products = await this.listProducts();
         const changeSet = new Map();
         changeSet.add = function(updatedAt, value) {
             const valueDate = new Date(Date.parse(updatedAt) || 0).toISOString();
@@ -877,24 +878,32 @@ class ShopifyCore {
     //
     async listProducts(baseDir = "products") {
         let data = null;
-        const products = [];
+        const items = [];
         while (!data || data.products.length  === 250) {
-            const maxID = Math.max(0, ...products.map(r => r.id));
+            const maxID = Math.max(0, ...items.map(r => r.id));
             data = await this.shopifyAPI.getProducts(maxID);
-            products.push(...data.products);
+            items.push(...data.products);
         }
-        //products.forEach(b => b.key = path.join(baseDir, b.handle));
-        return products;
+        items.forEach(o => o.key = path.join(baseDir, o.handle));
+        items.forEach(o => o.images?.forEach(i => {
+            const [,handle] = i.src?.match(/^(?:https?:\/\/[^\/]+)?[^?]*\/([^\/?]*)(?:\?.*)?$/) || [];
+            i.handle = handle;
+            i.key = path.join(o.key, i.handle)
+        }));
+        return items;
     }
 
 
     async pullProducts(destDir = "./shopify", force = false, dryrun=false, filter= null) {
+        //todo: turn this into a generator
         let products = await this.listProducts();
 
-        //todo: turn this into a generator
-        const filterDate = Date.parse(filter?.createdAt);
-        if (filterDate) {
-            products = products.filter(item => filterDate >= Date.parse(item.updated_at));
+        const filterDate = new Date(filter?.createdAt).getTime();
+        if (filterDate) { // filterDate === 0 or NaN or Null will be false
+            products = products.filter(item => filterDate >= new Date(item.created_at).getTime());
+            products.forEach(product => {
+                product.images = product.images.filter(item => filterDate >= new Date(item.created_at).getTime());
+            })
         }
 
         const valueToCSV = function(value) {
