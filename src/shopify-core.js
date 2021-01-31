@@ -13,6 +13,8 @@ class ShopifyCore {
         this.shopifyAPI = new ShopifyAPI(auth);
     }
 
+    get host() { return this.shopifyAPI.host; }
+
     static handleName(name) {
         return name.toString()
             .normalize("NFD")
@@ -172,7 +174,7 @@ class ShopifyCore {
         await this.shopifyAPI.updateTheme(theme.id, theme.name, 'main')
     }
 
-    async initTheme(themeName, src = null) {
+    async createTheme(themeName, src = null) {
         if (!themeName) return;
 
         const theme = await this.getTheme(themeName);
@@ -180,6 +182,18 @@ class ShopifyCore {
 
         console.log(`CREATE Theme: ${themeName}`);
         await this.shopifyAPI.createTheme(themeName, 'unpublished', src)
+    }
+
+    async deleteTheme(themeName) {
+        if (!themeName) return;
+
+        const theme = await this.getTheme(themeName);
+
+        if (!theme) return;
+        if (theme.role === 'main') throw Error(`Theme "${theme.name}" is currently published; Cannot delete`);
+
+        console.log(`DELETE Theme: ${themeName}`);
+        await this.shopifyAPI.deleteTheme(theme.id);
     }
 
     async #isAssetSame(localFilename, remoteCheckSum = null, remoteLastModified = null, remoteSize) {
@@ -324,7 +338,6 @@ class ShopifyCore {
         // this loop inspection is opposite the other ones. should iterate over the local files not the remote files
         for (const asset of remoteAssets) {
             const filename = path.join(destDir, asset.key);
-
             if (localFiles.has(asset.key)) {
                 // API optimization
                 if (!force && await this.#isAssetSame(filename, asset.checksum, asset.updated_at, asset.size)) {
@@ -353,6 +366,70 @@ class ShopifyCore {
         }));
 
         return remoteAssets;
+    }
+
+    async watchAssets(themeName = null, destDir = "./shopify", force = false, dryrun=false) {
+        const theme = await this.listAssets(themeName);
+        if (!theme || !theme.id) return [];
+
+        const remoteAssets = await this.pushAssets(themeName, destDir, force, dryrun);
+
+        // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
+        const knownDirs = new Set(["assets","layout","sections","templates","config","locales","snippets"]);
+        remoteAssets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
+
+        const localFiles = await this.getLocalFiles(destDir, knownDirs);
+        const localAssets = new Map();
+        for (const relativeFile of localFiles) {
+            const fullFilename = path.join(destDir, relativeFile);
+            localAssets.set(fullFilename, await md5File(fullFilename));
+        }
+
+        const fsWait = new Set();
+        const changes = new Set();
+        const applyChanges = async () => {
+            for (const filename of changes) {
+                // loop through the batched changes and apply only the entries that are create or update
+                changes.delete(filename);
+                if (this.#matchesShopifyIgnore(destDir, filename)) continue;
+                const md5 = await md5File(filename);
+                if (!md5) continue; // deleted?
+
+                if (!localAssets.has(filename) || localAssets.get(filename) !== md5) {
+
+                    const relativeFile = path.relative(destDir, filename);
+                    const data = this.#readFile(filename);
+                    if (!data) continue; // deleted?
+
+                    console.log(`UPDATE: ${relativeFile}`);
+                    const stringValue = typeof data === "string" ? data : null;
+                    const attachmentValue = typeof data !== "string" ? Buffer.from(data).toString("base64") : null;
+                    await this.shopifyAPI.updateAsset(theme.id, relativeFile, stringValue, attachmentValue);
+                    localAssets.set(filename, md5);
+                }
+            }
+        }
+        for (const watchDir of knownDirs) {
+            console.log(`Watching for changes: /${watchDir}`);
+
+            fs.watch(path.join(destDir, watchDir), (event, relativeFile) => {
+                if (!relativeFile) return; // when would this happen?
+
+                console.info (`${event}: ${path.join(watchDir, relativeFile)}`);
+                const filename = path.join(destDir, watchDir, relativeFile);
+                changes.add(filename);
+
+                for (const id of fsWait) {
+                    // clear any delays to batch up our work;
+                    clearTimeout(id);
+                    fsWait.delete(id);
+                }
+
+                const timeoutID = setTimeout(applyChanges, 100);
+
+                fsWait.add(timeoutID);
+            });
+        }
     }
 
     //

@@ -2,11 +2,26 @@
 const program = require('commander');
 const path = require('path');
 const child_process = require('child_process');
+const os = require("os");
 const Shopify = require('../shopify-core');
+const {sleep} = require('../utils');
 
-process.on('SIGINT', function () {
-    process.exit(1);
-});
+// sometimes when running in the shell, SIGINT doesn't trip on ^C
+const TERMINATE_ACTIONS = [];
+async function terminate(...args) {
+    let action = null;
+    while (action = TERMINATE_ACTIONS.pop()) {
+        await action();
+    }
+    console.log('Done.');
+    // is this safe, even on beforeExit?
+    process.exit(args.unshift() || 0);
+}
+[
+    'SIGABRT','SIGBUS', 'SIGFPE', 'SIGUSR1',
+    'SIGSEGV', 'SIGHUP', 'SIGINT', 'SIGQUIT',
+    'SIGILL', 'SIGTRAP', 'SIGUSR2', 'SIGTERM'
+].forEach(sig => process.on(sig, terminate));
 
 let _shopify = new Shopify();
 function getShopify() {
@@ -24,6 +39,37 @@ function setCommand(options, theme) {
         program.blogs = false
         program[options?.name() || 'assets'] = true;
     }
+}
+
+async function getGitBranch(cwd) {
+    try {
+        return child_process.execFileSync('git', ["symbolic-ref", "--short", "HEAD"], { cwd });
+    }
+    catch {}
+    return null;
+}
+
+async function gitCommit(cwd, message = "Sync with Shopify", commitDate = null) {
+    const execOptions = {
+        cwd: program.outputDir,
+        stdio: 'inherit',
+    }
+
+    if (commitDate) {
+        execOptions.env = Object.assign({
+            'GIT_COMMITTER_DATE': commitDate,
+            'GIT_AUTHOR_DATE': commitDate
+        }, process.env)
+    }
+
+    try {
+        child_process.execFileSync('git', ['add', '-A'], execOptions);
+        child_process.execFileSync('git', ['commit', '--allow-empty', '-a', '-m', message], execOptions);
+    }
+    catch (e) {
+        console.error(e);
+    }
+
 }
 
 async function list(theme, options) {
@@ -95,7 +141,7 @@ async function push(theme, options) {
     const dryrun = options.dryrun ?? options.parent.dryrun;
     const force = options.force ?? options.parent.force;
 
-    await shopify.initTheme(options.theme);
+    await shopify.createTheme(options.theme);
     if (program.assets) await shopify.pushAssets(options.theme, program.outputDir, force, dryrun);
     // if (program.menus) await shopify.pushMenus(program.outputDir, force, dryrun);
     if (program.pages) await shopify.pushPages(program.outputDir, force, dryrun);
@@ -119,16 +165,13 @@ async function init(theme, options) {
     if (options.details) {
         console.log(Object.fromEntries([...changeSet.entries()].sort()));
     }
-    else {
-        [...changeSet.keys()].sort().forEach(k => console.log(`${k} (${(changeSet.get(k) || []).length})`));
-
+    else if (options.simple) {
+        for (const key of [...changeSet.keys()].sort()) {
+            console.log(`${key} (${(changeSet.get(key) || []).length})`);
+        }
     }
 
-    if (options.git) {
-        const execOptions = {
-            cwd: program.outputDir,
-            stdio: 'inherit',
-        }
+    if (options.git && await getGitBranch(program.outputDir)) {
         for (const createdAt of [...changeSet.keys()].sort()) {
             const filter = { createdAt }
 
@@ -147,20 +190,54 @@ async function init(theme, options) {
             if (program.pages) await shopify.pullPages(program.outputDir, false, false, filter);
             if (program.blogs) await shopify.pullBlogArticles(program.outputDir, null, false, false, filter);
             if (program.scripts) await shopify.pullScriptTags(program.outputDir, false, false, filter);
-            execOptions.env = Object.assign({
-                'GIT_COMMITTER_DATE': createdAt,
-                'GIT_AUTHOR_DATE': createdAt
-            }, process.env)
-            try {
-                child_process.execFileSync('git', ['add', '-A'], execOptions)
-                child_process.execFileSync('git', ['commit', '--allow-empty', '-a', '-m', `Sync with Shopify @ ${createdAt}`], execOptions)
-            }
-            catch (e) {
-                console.error(e);
-            }
+            await gitCommit(program.outputDir, `Sync with Shopify @ ${createdAt}`, createdAt);
         }
         await pull(options);
+        await gitCommit(program.outputDir, `Sync with Shopify @ ${new Date().toISOString()}`);
     }
+}
+
+async function serve(options) {
+    const shopify = getShopify();
+    console.log('Initializing Local Environment...');
+    if (options.themeName) {
+    }
+    let themeName = options.themeName ?? `[DEV] ${os.userInfo().username}@${os.hostname}`
+    if (!options.themeName && options.git) {
+        const gitBranch = await getGitBranch(program.outputDir);
+        if (gitBranch) {
+            themeName += `/${Buffer.from(gitBranch).toString('UTF-8').trim()}`;
+        }
+    }
+
+    // create new ephemeral theme
+    await shopify.createTheme(themeName);
+    const currTheme = await shopify.getTheme(themeName);
+    if (currTheme.role === 'main') {
+        console.error('ERROR: Developing on a published theme is not supported');
+        return;
+    }
+
+    TERMINATE_ACTIONS.push(async () => await shopify.deleteTheme(themeName));
+    try {
+        // push to the theme
+        await shopify.watchAssets(themeName, program.outputDir);
+
+        // proxy the theme
+        // TODO: create proxy
+        console.log(`Starting https://${shopify.host}/?_ab=0&_fd=0&_sc=1&preview_theme_id=${currTheme.id}`);
+        console.log(`Press ^C to exit.`);
+
+        // watch
+        while(true) {
+            await sleep(100);
+        }
+    }
+    catch(e) {
+        console.error(e);
+    }
+    // 4. register cleanup
+    await shopify.deleteTheme(themeName);
 }
 
 program
@@ -225,8 +302,16 @@ program
     .option('--simple', 'show expand the output to include details', false)
     .option('--details', 'expand the output to include details', false)
     .option('-n, --dry-run', "dont't save files" , false)
-    .option('--git', 'expand the output to include details', false)
+    .option('--no-git', 'expand the output to include details', false)
     .action(init);
+
+program
+    .command('serve')
+    .description('init a new theme on the remote')
+    .option('-n, --dry-run', "dont't save files" , false)
+    .option('--theme-name <name>', "specify the ephemeral theme name to use" )
+    .option('--no-git', 'disable inspecting git for the branch name')
+    .action(serve);
 
 program
     .command('publish <theme>')
