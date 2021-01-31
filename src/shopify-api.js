@@ -17,7 +17,7 @@ class ShopifyAPI {
     get #password() { return this.auth.password; }
     get #storefront() { return this.auth.storefront; }
     set #host(val) { this.auth.host = val; }
-    get #host() { return this.auth.host; }
+    get host() { return this.auth.host; }
 
     async #get(path = '/', maxTTL = 300) {
         return this.#request("GET", path, null, maxTTL);
@@ -76,7 +76,7 @@ class ShopifyAPI {
 
         console.info(`${method} ${path}`);
         console.debug(options);
-        const urlPrefix = path.startsWith("http") ? '' : `https://${this.#host}`;
+        const urlPrefix = path.startsWith("http") ? '' : `https://${this.host}`;
         let res = await fetch(`${urlPrefix}${path}`, options)
             .catch(e => {
                 console.error(e);
@@ -132,6 +132,10 @@ class ShopifyAPI {
             }
         }
 
+        if (method !== "GET") {
+            CACHE.delete("GET" + path);
+        }
+
         return res._body;
     }
 
@@ -154,7 +158,7 @@ class ShopifyAPI {
         }
         if (src) data.theme.src = src;
 
-        return await this.#post(`/admin/api/${API_VERSION}/themes.json`, data)
+        return await this.#post(`/admin/api/${API_VERSION}/themes.json`, data);
 
     }
     async updateTheme(themeID, name = null, role = null) {
