@@ -333,7 +333,6 @@ class ShopifyCore {
         remoteAssets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
 
         const localFiles = await this.getLocalFiles(destDir, knownDirs);
-
         const deletePaths = new Set();
 
         // this loop inspection is opposite the other ones. should iterate over the local files not the remote files
@@ -352,24 +351,26 @@ class ShopifyCore {
         }
 
         // Create & Updates
-        // for some files we need to upload in order. The rest can be parallelized
-        for (const key of ['config/settings_schema.json']) {
-            if (localFiles.has(key)) {
-                const data = this.#readFile(path.join(destDir, key));
-                await this.shopifyAPI.updateAsset(theme.id, key, data, null);
-                localFiles.delete(key);
-            }
-        }
         // parallelize the rest
-        await Promise.all([...localFiles.values()].map(async key => {
+        const SPECIAL_ASSET_UPLOAD_ORDER = ['config/settings_schema.json', 'config/settings_data.json'];
+        const updateAsset = async key => {
             console.log(`UPDATE: ${key}`);
             //TODO: make this work for binary (use attachment)
             const data = this.#readFile(path.join(destDir, key));
             const stringValue = typeof data === "string" ? data : null;
             const attachmentValue = typeof data !== "string" ? Buffer.from(data).toString("base64") : null;
             await this.shopifyAPI.updateAsset(theme.id, key, stringValue, attachmentValue);
+        }
+        await Promise.all([...localFiles.values()].map(async key => {
+            if (SPECIAL_ASSET_UPLOAD_ORDER.includes(key)) return;
+            await updateAsset(key);
         }));
-
+        // for some files we need to upload in order. The rest can be parallelized
+        for (const key of SPECIAL_ASSET_UPLOAD_ORDER) {
+            if (localFiles.has(key)) {
+                await updateAsset(key);
+            }
+        }
         // Deletes
         await Promise.all([...deletePaths.values()].map(async key => {
             console.log(`DELETE: ${key}`)
@@ -384,9 +385,8 @@ class ShopifyCore {
         if (!theme || !theme.id) return [];
 
         const tempLog = console.log;
-        console.log = console.info;
+        console.log = () => {};
         const remoteAssets = await this.pushAssets(themeName, destDir, force, dryrun);
-        // appears to be some idiosyncrasies with updating the settings.json and requires a second push
         console.log = tempLog;
 
         // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
