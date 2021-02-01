@@ -24,14 +24,20 @@ async function md5File(filename){
     return crypto.createHash('md5').update(filename.toString()).digest('hex');
 }
 
-async function* getFiles(dir) {
+async function* getFiles(dir, regexMatch = null) {
     if (!fs.existsSync(dir)) return;
     const entries = await readdir(dir, { withFileTypes: true });
     for (const entry of entries) {
         const res = path.resolve(dir, entry.name);
         if (entry.isDirectory()) {
             yield* getFiles(res);
-        } else {
+        }
+        else if (regexMatch) {
+            if (regexMatch.test(res)) {
+                yield res;
+            }
+        }
+        else {
             yield res;
         }
     }
