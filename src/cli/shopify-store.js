@@ -9,6 +9,7 @@ const {sleep} = require('../utils');
 // sometimes when running in the shell, SIGINT doesn't trip on ^C
 const TERMINATE_ACTIONS = [];
 async function terminate(...args) {
+    console.log();
     let action = null;
     while (action = TERMINATE_ACTIONS.pop()) {
         await action();
@@ -69,7 +70,6 @@ async function gitCommit(cwd, message = "Sync with Shopify", commitDate = null) 
     catch (e) {
         console.error(e);
     }
-
 }
 
 async function list(theme, options) {
