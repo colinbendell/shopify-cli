@@ -199,9 +199,7 @@ async function init(theme, options) {
 
 async function serve(options) {
     const shopify = getShopify();
-    console.log('Initializing Local Environment...');
-    if (options.themeName) {
-    }
+    console.log('Initializing Local Environment:');
     let themeName = options.themeName ?? `[DEV] ${os.userInfo().username}@${os.hostname}`
     if (!options.themeName && options.git) {
         const gitBranch = await getGitBranch(program.outputDir);
@@ -211,6 +209,7 @@ async function serve(options) {
     }
 
     // create new ephemeral theme
+    console.log(`... creating "${themeName}"`);
     await shopify.createTheme(themeName);
     const currTheme = await shopify.getTheme(themeName);
     if (currTheme.role === 'main') {
@@ -218,14 +217,19 @@ async function serve(options) {
         return;
     }
 
-    TERMINATE_ACTIONS.push(async () => await shopify.deleteTheme(themeName));
+    TERMINATE_ACTIONS.push(async () => {
+        console.log(`... cleanup "${themeName}"`);
+        await shopify.deleteTheme(themeName)
+    });
     try {
+        console.log(`... watching ${program.outputDir}`);
+
         // push to the theme
         await shopify.watchAssets(themeName, program.outputDir);
 
         // proxy the theme
         // TODO: create proxy
-        console.log(`Starting https://${shopify.host}/?_ab=0&_fd=0&_sc=1&preview_theme_id=${currTheme.id}`);
+        console.log(`... preview: https://${shopify.host}/?preview_theme_id=${currTheme.id}`);
         console.log(`Press ^C to exit.`);
 
         // watch

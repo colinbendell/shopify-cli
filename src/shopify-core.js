@@ -180,7 +180,7 @@ class ShopifyCore {
         const theme = await this.getTheme(themeName);
         if (theme) return;
 
-        console.log(`CREATE Theme: ${themeName}`);
+        console.info(`CREATE Theme: "${themeName}"`);
         await this.shopifyAPI.createTheme(themeName, 'unpublished', src)
     }
 
@@ -192,7 +192,7 @@ class ShopifyCore {
         if (!theme) return;
         if (theme.role === 'main') throw Error(`Theme "${theme.name}" is currently published; Cannot delete`);
 
-        console.log(`DELETE Theme: ${themeName}`);
+        console.info(`DELETE Theme: "${themeName}"`);
         await this.shopifyAPI.deleteTheme(theme.id);
     }
 
@@ -328,7 +328,7 @@ class ShopifyCore {
 
         const remoteAssets = theme.assets;
         // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
-        const knownDirs = new Set(["assets","layout","sections","templates","config","locales","snippets"]);
+        const knownDirs = new Set(["assets","layout","sections","templates","locales","snippets","config"]);
         remoteAssets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
 
         const localFiles = await this.getLocalFiles(destDir, knownDirs);
@@ -372,10 +372,17 @@ class ShopifyCore {
         const theme = await this.listAssets(themeName);
         if (!theme || !theme.id) return [];
 
+        const tempLog = console.log;
+        console.log = console.info;
         const remoteAssets = await this.pushAssets(themeName, destDir, force, dryrun);
+        // appears to be some idiosyncrasies with updating the settings.json and requires a second push
+        // TODO: fix this
+        await sleep(10);
+        await this.pushAssets(themeName, destDir, force, dryrun);
+        console.log = tempLog;
 
         // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
-        const knownDirs = new Set(["assets","layout","sections","templates","config","locales","snippets"]);
+        const knownDirs = new Set(["assets","layout","sections","templates","locales","snippets","config"]);
         remoteAssets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
 
         const localFiles = await this.getLocalFiles(destDir, knownDirs);
@@ -410,7 +417,7 @@ class ShopifyCore {
             }
         }
         for (const watchDir of knownDirs) {
-            console.log(`Watching for changes: /${watchDir}`);
+            console.info(`Watching for changes: /${watchDir}`);
 
             fs.watch(path.join(destDir, watchDir), (event, relativeFile) => {
                 if (!relativeFile) return; // when would this happen?
