@@ -8,8 +8,6 @@ program
     .version('1.0');
 
 program
-    .option('--debug', 'enable debug', false)
-    .option('--verbose', 'enable verbose', false)
     .option('--outputDir <dir>', 'location to save the store files', "./")
     .command('store', 'manage the Shopify Online Store', {isDefault: true})
     .command('products', 'Manage products and inventory');
