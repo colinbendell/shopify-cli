@@ -735,7 +735,7 @@ class ShopifyCore {
         return blogs;
     }
 
-    async listBlogArticles(blog) {
+    async listBlogArticles(blog = null) {
         if (!blog) {
             const blogs = await this.listBlogs();
             return await Promise.all(blogs.map(async b => await this.listBlogArticles(b.id)));
@@ -924,8 +924,36 @@ class ShopifyCore {
             menus = menus.filter(item => filterDate >= Date.parse(item.updated_at));
         }
 
+        const blogs = await this.listBlogArticles();
+        const articleMap = new Map(blogs.map(b => b.articles?.map(a => [a.id, b.handle + "/" + a.handle])).flat());
         const menuToYml = function(currItems = [], indent = "") {
-            return currItems.map(item => [`${indent}- ${item.title}`,menuToYml(item.items, "  " + indent)]);
+            return currItems.map(item => {
+                let value = item.title;
+                // each menu type requires a slightly different formatting for the url
+                // TODO: push this up to the model
+
+                // frontpage, http, search
+                if (/^(?:https?:|mailto:)?[/]/i.test(item.subject)) {
+                    value = `[${value}](${item.subject})`;
+                }
+                // collection, product, catalog, page, blog
+                else if (item.type === "blog" || item.type === "collection" || item.type === "page" || item.type === "product") {
+                    const target = item.type + "s";
+                    value = `[${value}](/${target}/${item.subject})`;
+                }
+                // shop_policy,
+                else if (item.type === "shop_policy") {
+                    value = `[${value}](/policies/${item.subject})`;
+                }
+                // article
+                else if (item.type === "article") {
+                    const blog = articleMap.get(item.subject_id);
+                    if (path) {
+                        value = `[${value}](/blogs/${blog}/${item.subject})`;
+                    }
+                }
+                return [`${indent}- ${value}`, menuToYml(item.items, "  " + indent)]
+            });
         }
 
         const localFiles = new Set();
