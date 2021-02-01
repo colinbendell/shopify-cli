@@ -113,9 +113,9 @@ class ShopifyAPI {
         else if (res.status === 404) {
             return null;
         }
-        else if (res.status >= 400) {
+        else if (res.status === 303 || res.status >= 400) {
             console.error(`${method} ${path} (${res.headers.get('status') || res.status + " " + res.statusText})`);
-            if (res.headers.get('content-length') > 0) console.error(await res.text());
+            if (res.headers.get('content-length') > 0) console.error(res._body);
             throw new Error(`${method} ${path} (${res.headers.get('status') || res.status + " " + res.statusText})`)
         }
         else if (res.status === 302) {
