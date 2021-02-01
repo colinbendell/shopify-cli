@@ -8,7 +8,7 @@ program
     .version('1.0');
 
 program
-    .option('--outputDir <dir>', 'location to save the store files', "./")
+    // .option('--outputDir <dir>', 'location to save the store files', "./")
     .command('store', 'manage the Shopify Online Store', {isDefault: true})
     .command('products', 'Manage products and inventory');
 
