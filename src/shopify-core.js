@@ -2,10 +2,11 @@ const fs = require('fs');
 const path = require('path');
 const { fetch } = require('fetch-h2');
 const ShopifyAPI = require('./shopify-api');
-const {getFiles, globAsRegex, md5File, md5, cleanObject, isSame} = require('./utils');
+const {getFiles, globAsRegex, md5File, md5, cleanObject, isSame, sleep} = require('./utils');
 const { stringify } = require('./stringify');
 
 const PAGES_IGNORE_ATTRIBUTES = ["id", "key", "handle", "shop_id", "admin_graphql_api_id"];
+const BLOGS_IGNORE_ATTRIBUTES = ["id", "key", "handle", "shop_id", "admin_graphql_api_id", "body_html", "blog_id"];
 const PAGES_IGNORE_ATTRIBUTES_EXT = [...PAGES_IGNORE_ATTRIBUTES, "published_at", "created_at", "updated_at", "deleted_at"];
 
 class ShopifyCore {
@@ -351,6 +352,15 @@ class ShopifyCore {
         }
 
         // Create & Updates
+        // for some files we need to upload in order. The rest can be parallelized
+        for (const key of ['config/settings_schema.json']) {
+            if (localFiles.has(key)) {
+                const data = this.#readFile(path.join(destDir, key));
+                await this.shopifyAPI.updateAsset(theme.id, key, data, null);
+                localFiles.delete(key);
+            }
+        }
+        // parallelize the rest
         await Promise.all([...localFiles.values()].map(async key => {
             console.log(`UPDATE: ${key}`);
             //TODO: make this work for binary (use attachment)
@@ -359,6 +369,7 @@ class ShopifyCore {
             const attachmentValue = typeof data !== "string" ? Buffer.from(data).toString("base64") : null;
             await this.shopifyAPI.updateAsset(theme.id, key, stringValue, attachmentValue);
         }));
+
         // Deletes
         await Promise.all([...deletePaths.values()].map(async key => {
             console.log(`DELETE: ${key}`)
@@ -376,9 +387,6 @@ class ShopifyCore {
         console.log = console.info;
         const remoteAssets = await this.pushAssets(themeName, destDir, force, dryrun);
         // appears to be some idiosyncrasies with updating the settings.json and requires a second push
-        // TODO: fix this
-        await sleep(10);
-        await this.pushAssets(themeName, destDir, force, dryrun);
         console.log = tempLog;
 
         // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
