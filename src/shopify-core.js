@@ -385,7 +385,7 @@ class ShopifyCore {
         if (!theme || !theme.id) return [];
 
         const tempLog = console.log;
-        console.log = () => {};
+        console.log = console.info;
         const remoteAssets = await this.pushAssets(themeName, destDir, force, dryrun);
         console.log = tempLog;
 

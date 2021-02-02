@@ -20,14 +20,14 @@ async function list() {
     products.forEach(item => console.log(stringify(item)));
 }
 
-async function pull(options) {
+async function pull(options, command) {
     const shopify = getShopify();
 
     const filter = {
-        createdAt: options.filterCreated ?? options.parent.filterCreated
+        createdAt: options.filterCreated ?? command.parent.opts().filterCreated
     }
-    const dryrun = options.dryrun ?? options.parent.dryrun;
-    const force = options.force ?? options.parent.force;
+    const dryrun = options.dryrun ?? command.parent.opts().dryrun;
+    const force = options.force ?? command.parent.opts().force;
 
     await shopify.pullProducts(program.outputDir, force, dryrun, filter);
 }
@@ -56,4 +56,4 @@ if (process.argv.indexOf("--debug") === -1) console.debug = function () {};
 if (process.argv.indexOf("--verbose") === -1 && process.argv.indexOf("--debug") === -1) console.info = function () {};
 
 program.parse(process.argv); // end with parse to parse through the input
-if (process.argv.length <= 2) program.help();
+// if (process.argv.length <= 2) program.help();
