@@ -745,6 +745,10 @@ class ShopifyCore {
 
         const blogs = await this.listBlogs();
         const blogDetails = blogs.filter(b => Number.isInteger(blog) ? b.id === blog : b.handle === ShopifyCore.handleName(blog))[0];
+
+        // not found; return null;
+        if (!blogDetails) return;
+
         blogDetails.articles = [];
         const articles = blogDetails.articles;
         let data = null;
@@ -783,23 +787,18 @@ class ShopifyCore {
             localFiles.add(path.relative(blogArticlesDir, file));
         }
 
-        for (const blogArticle of articles || []) {
-            const article = Object.assign({}, blogArticle);
-            const handle = article.handle;
-            const html = article.body_html || "";
-            const key = article.key;
-            article.body_html = {file: `${handle}.html`};
-
+        for (const article of articles || []) {
             const filename = path.join(blogArticlesDir, article.key);
-            localFiles.delete(article.key + ".json");
-            localFiles.delete(article.key + ".html");
+            const html = article.body_html || ""; // //TODO: really should .replace(/\u00A0/g, "&nbsp;")
+            const key = article.key;
+            localFiles.delete(key + ".html");
 
-            const jsonData = JSON.stringify(cleanObject(article, PAGES_IGNORE_ATTRIBUTES), null, 2);
-            if (force || await md5File(filename + ".json") !== md5(jsonData) || await md5File(filename + ".html") !== md5(html)) {
+            const jsonData = stringify(cleanObject(article, BLOGS_IGNORE_ATTRIBUTES));
+            const data = ['<script type="application/vnd.api+json">', jsonData, "</script>", html].join('\n');
+            if (force || await md5File(filename + ".html") !== md5(data)) {
                 console.log(`SAVING: ${blogDetails.key}/${key}.html`);
                 if (!dryrun) {
-                    await this.#saveFile(filename + ".json", jsonData);
-                    await this.#saveFile(filename + ".html", html);
+                    await this.#saveFile(filename + ".html", data);
                 }
             }
         }
@@ -815,33 +814,35 @@ class ShopifyCore {
 
     }
 
-    async pushBlogArticles(destDir = "./shopify", blog, force = false, dryrun=false) {
+    async pushBlogArticles(destDir = "./shopify", blog = null, force = false, dryrun=false) {
 
-        // which blog?
+        // TODO: use local folders instead of remote
         if (!blog) {
             const blogs = await this.listBlogs();
-            await Promise.all(blogs.map(async b => await this.pushBlogArticles(destDir, b.id)));
-            return;
+            return await Promise.all(blogs.map(async b => await this.pushBlogArticles(destDir, b.id)));
         }
 
-        const blogDetails = await this.listBlogArticles(blog);
-        if (!blogDetails) return;
+        // which blog?
+        let blogDetails = await this.listBlogArticles(blog);
+        if (!blogDetails) {
+            blogDetails = await this.shopifyAPI.createBlog({title: blog});
+            if (!blogDetails || !blogDetails.blog) return;
+            blogDetails = blogDetails.blog;
+        }
 
         const blogArticlesDir = path.join(destDir, blogDetails.key);
 
         const readBlogArticleFile = (file) => {
             if (!fs.existsSync(file)) return;
             const d = this.#readFile(file);
-            const data = JSON.parse(d);
-            if (data.body_html && data.body_html.file) {
-                data.body_html = this.#readFile(path.join(path.dirname(file), data.body_html.file));
-            }
+            const [,jsonRaw,html] = /^\s*<script\s*type="application\/vnd\.api\+json">\s*({[\s\S]*?})\s*<\/script>\s*([\s\S]*)/mi.exec(d);
+            const data = JSON.parse(jsonRaw);
+            data.body_html = html;
             return data;
         }
 
         const localFiles = new Set();
-        for await (const file of getFiles(blogArticlesDir)) {
-            if (!file.endsWith(".html")) continue; // only look for the .html files (implying the .json files)
+        for await (const file of getFiles(blogArticlesDir, /.html$/)) {
             localFiles.add(path.relative(blogArticlesDir, file).replace(/\.html$/,""));
         }
 
@@ -853,21 +854,7 @@ class ShopifyCore {
             const draftHandle = path.join("drafts", handle);
 
             if (localFiles.has(handle) || localFiles.has(draftHandle)) {
-                // Local file matches, is this a CREATE or UPDATE?
-                const localArticle = readBlogArticleFile(path.join(blogArticlesDir, handle + ".json")) || readBlogArticleFile(path.join(blogArticlesDir, draftHandle + ".json"));
-
-                //if the file exists in both drafts and published, we bias to the published entry
-                localArticle.published = !localFiles.has(draftHandle) || localFiles.has(handle);
-                if (!localArticle.published) delete localArticle.published_at; // not enough just to say it is not published
-                remoteArticle.published = (!!remoteArticle.published_at);
-
-                //normalize the basics
-                localArticle.handle = ShopifyCore.handleName(handle);
-                localArticle.id = remoteArticle.id;
-
-                if (!isSame(remoteArticle, localArticle, PAGES_IGNORE_ATTRIBUTES_EXT)) {
-                    updateBlogArticle.add(localArticle);
-                }
+                updateBlogArticle.add([handle || draftHandle, remoteArticle]); //TODO: clean this up
                 localFiles.delete(handle);
                 localFiles.delete(draftHandle);
             }
@@ -881,18 +868,35 @@ class ShopifyCore {
             const blogArticle = readBlogArticleFile(path.join(blogArticlesDir, file + ".json"));
 
             //cleanup properties that might have been cloned
-            delete blogArticle.id;
-            if (!detail.published) delete blogArticle.published_at;
-            blogArticle.published = file.startsWith("drafts");
+            delete blogArticle.id; // ensure new articles don't have an id
             blogArticle.handle = ShopifyCore.handleName(file.replace(/drafts[\/\\]/, ""));
+            blogArticle.published = !file.startsWith("drafts");
+            if (!blogArticle.published) delete blogArticle.published_at;
 
             console.log(`CREATE blogs/${blogDetails.handle}/${file}`);
             await this.shopifyAPI.createBlogArticle(blogArticle);
         }));
         // Updates
-        await Promise.all([...updateBlogArticle].map(async file => {
-            console.log(`UPDATE blogs/${blogDetails.handle}/${file.handle})`);
-            await this.shopifyAPI.updateBlogArticle(file.id, file);
+        await Promise.all([...updateBlogArticle].map(async update => {
+            const [file, remoteArticle] = update;
+            // Local file matches, is this a CREATE or UPDATE?
+            const blogArticle = readBlogArticleFile(path.join(blogArticlesDir, file + ".html")) || readBlogArticleFile(path.join(blogArticlesDir, "drafts", file + ".html"));
+
+            //if the file exists in both drafts and published, we bias to the published entry
+            blogArticle.published = !file.startsWith("drafts");
+            if (!blogArticle.published) delete blogArticle.published_at; // not enough just to say it is not published
+
+            //normalize the basics
+            blogArticle.id = remoteArticle.id; //copy over the ID just in case it has drifted locally
+            blogArticle.blog_id = blogDetails.id;
+            blogArticle.handle = ShopifyCore.handleName(file);
+
+            // remote doesn't say published = true
+            remoteArticle.published = !!remoteArticle.published_at;
+            if (!isSame(remoteArticle, blogArticle, PAGES_IGNORE_ATTRIBUTES_EXT)) {
+                console.log(`UPDATE blogs/${blogDetails.handle}/${file}`);
+                await this.shopifyAPI.updateBlogArticle(blogArticle.id, blogArticle);
+            }
         }));
         // Deletes
         await Promise.all([...deleteBlogArticles].map(async file => {
