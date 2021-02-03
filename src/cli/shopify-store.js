@@ -141,7 +141,7 @@ async function pull(options, command) {
 
 async function push(options, command) {
     const shopify = getShopify();
-    if (options?.name()  !== 'pull') setCommand(options);
+    if (command?.name()  !== 'push') setCommand(command);
     Object.assign(options, Object.assign(program.opts(), command.parent?.opts(), options));
 
     const dryrun = options.dryrun;
