@@ -482,11 +482,11 @@ class ShopifyCore {
         for (const line of localCSV) {
             if (!line || !line.startsWith('/')) continue; // skip empty lines or the first row;
             const [path, target] = line.split(',');
-            if (!path || !target) continue;
+            if (!path || !target) continue; // skip empty lines or the first row;
 
             if (originalPaths.has(path)) {
                 const detail = originalPaths.get(path);
-                if (detail.target !== target) {
+                if (force || detail.target !== target) {
                     detail.target = target;
                     updatePaths.set(path, detail);
                 }
@@ -500,17 +500,17 @@ class ShopifyCore {
         // Creates
         await Promise.all([...createPaths.values()].map(async r => {
             console.log(`CREATE 302: ${r.path} => ${r.target}`);
-            await this.shopifyAPI.createRedirect(r.path, r.target);
+            if (!dryrun) await this.shopifyAPI.createRedirect(r.path, r.target);
         }));
         // Updates
         await Promise.all([...updatePaths.values()].map(async r => {
             console.log(`UPDATE 302: ${r.path} => ${r.target}`);
-            await this.shopifyAPI.updateRedirect(r.id, r.path, r.target);
+            if (!dryrun) await this.shopifyAPI.updateRedirect(r.id, r.path, r.target);
         }));
         // Deletes
         await Promise.all([...originalPaths.values()].map(async r => {
             console.log(`DELETE 302: ${r.path}`);
-            await this.shopifyAPI.deleteRedirect(r.id);
+            if (!dryrun) await this.shopifyAPI.deleteRedirect(r.id);
         }));
         return localCSV;
     }
@@ -565,7 +565,7 @@ class ShopifyCore {
             const [src,event,scope] = line.split(',');
             if (originalScripts.has(src)) {
                 const detail = originalScripts.get(src);
-                if (detail.event !== event || detail.display_scope !== scope) {
+                if (force || detail.event !== event || detail.display_scope !== scope) {
                     detail.event = event;
                     detail.display_scope = scope;
                     updateScripts.set(src, detail);
@@ -580,17 +580,17 @@ class ShopifyCore {
         // Creates
         await Promise.all([...createScripts.values()].map(async s => {
             console.log(`CREATE ScriptTag: ${s.src} ${s.event} (${s.display_scope})`);
-            await this.shopifyAPI.createScriptTags(s.src, s.target);
+            if (!dryrun) await this.shopifyAPI.createScriptTags(s.src, s.target);
         }));
         // Updates
         await Promise.all([...updateScripts.values()].map(async s => {
             console.log(`UPDATE ScriptTag: ${s.src} ${s.event} (${s.display_scope})`);
-            await this.shopifyAPI.updateScriptTags(s.id, s.src, s.event, s.display_scope);
+            if (!dryrun) await this.shopifyAPI.updateScriptTags(s.id, s.src, s.event, s.display_scope);
         }));
         // Deletes
         await Promise.all([...originalScripts.values()].map(async s => {
             console.log(`DELETE ScriptTag: ${s.src}`);
-            await this.shopifyAPI.deleteScriptTags(s.id);
+            if (!dryrun) await this.shopifyAPI.deleteScriptTags(s.id);
         }));
         return localCSV;
     }
@@ -688,7 +688,7 @@ class ShopifyCore {
                 detail.id = page.id;
                 page.published = (!!page.published_at);
 
-                if (!isSame(page, detail, PAGES_IGNORE_ATTRIBUTES_EXT)) {
+                if (force || !isSame(page, detail, PAGES_IGNORE_ATTRIBUTES_EXT)) {
                     updatePage.add(detail);
                 }
                 localFiles.delete(handle);
@@ -708,17 +708,17 @@ class ShopifyCore {
             page.handle = file.replace("drafts/", "");
 
             console.log(`CREATE pages/${file}`);
-            await this.shopifyAPI.createPage(page);
+            if (!dryrun) await this.shopifyAPI.createPage(page);
         }));
         // Updates
         await Promise.all([...updatePage].map(async file => {
             console.log(`UPDATE pages/${file.handle})`);
-            await this.shopifyAPI.updatePage(file.id, file);
+            if (!dryrun) await this.shopifyAPI.updatePage(file.id, file);
         }));
         // Deletes
         await Promise.all([...deletePages].map(async file => {
             console.log(`DELETE pages/${file.handle}`);
-            await this.shopifyAPI.deletePage(file.id);
+            if (!dryrun) await this.shopifyAPI.deletePage(file.id);
         }));
     }
 
