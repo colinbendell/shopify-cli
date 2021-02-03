@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { fetch } = require('fetch-h2');
 const ShopifyAPI = require('./shopify-api');
-const {getFiles, globAsRegex, md5File, md5, cleanObject, isSame, sleep} = require('./utils');
+const {getFiles, globAsRegex, md5File, md5, cleanObject, isSame} = require('./utils');
 const { stringify } = require('./stringify');
 
 const PAGES_IGNORE_ATTRIBUTES = ["id", "key", "handle", "shop_id", "admin_graphql_api_id"];
@@ -15,6 +15,8 @@ class ShopifyCore {
     }
 
     get host() { return this.shopifyAPI.host; }
+
+    static get THEME_DIRS() { return ["assets","layout","sections","templates","config","locales","snippets"]};
 
     static handleName(name) {
         return name.toString()
@@ -95,7 +97,7 @@ class ShopifyCore {
             t => t.id === currTheme.id
                 || (!currTheme.theme_store_id && !t.theme_store_id && Date.parse(t.created_at) <= Date.parse(currTheme.created_at))
                 || (currTheme.theme_store_id === t.theme_store_id && Date.parse(t.created_at) <= Date.parse(currTheme.created_at)));
-        const menus = await this.listMenus().catch(e => {}) || [];
+        const menus = await this.listMenus().catch(() => {}) || [];
         const pages = await this.listPages();
         const blogArticles = await this.listBlogArticles();
         const scriptTags = await this.listScriptTags();
@@ -258,6 +260,7 @@ class ShopifyCore {
     }
 
     async pullAssets(themeName = null, destDir = "./shopify", force = false, dryrun=false, filter= null) {
+        const themeDir = path.join(destDir, "theme");
         const filterDate = Date.parse(filter?.createdAt);
         const theme = await this.getTheme(themeName);
         if (!theme || !theme.id) return [];
@@ -275,14 +278,10 @@ class ShopifyCore {
             remoteAssets = remoteAssets.filter(item => item.version || filterDate >= Date.parse(item.updated_at));
         }
 
-        // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
-        const knownDirs = new Set(["assets","layout","sections","templates","config","locales","snippets"]);
-        remoteAssets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
-
-        const localFiles = await this.getLocalFiles(destDir, [...knownDirs]);
+        const localFiles = await this.getLocalFiles(themeDir, ShopifyCore.THEME_DIRS);
 
         await Promise.all(remoteAssets.map(async asset => {
-            const filename = path.join(destDir, asset.key);
+            const filename = path.join(themeDir, asset.key);
             localFiles.delete(asset.key);
 
             // API optimization
@@ -293,7 +292,7 @@ class ShopifyCore {
                 }
                 else if (asset.public_url) {
                     const res = await fetch(asset.public_url);
-                    await this.#saveFile(path.join(destDir, asset.key), Buffer.from(await res.arrayBuffer()));
+                    await this.#saveFile(path.join(themeDir, asset.key), Buffer.from(await res.arrayBuffer()));
                 }
                 else {
                     const detail = await this.shopifyAPI.getAsset(theme.id, asset.key, asset?.version?.version);
@@ -318,26 +317,24 @@ class ShopifyCore {
 
         for (const f of localFiles) {
             console.log(`DELETE ${f}`);
-            if (!dryrun) fs.unlinkSync(path.join(destDir, f));
+            if (!dryrun) fs.unlinkSync(path.join(themeDir, f));
         }
         return remoteAssets;
     }
 
     async pushAssets(themeName = null, destDir = "./shopify", force = false, dryrun=false) {
+        const themeDir = path.join(destDir, "theme");
         const theme = await this.listAssets(themeName);
         if (!theme || !theme.id) return [];
 
         const remoteAssets = theme.assets;
-        // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
-        const knownDirs = new Set(["assets","layout","sections","templates","locales","snippets","config"]);
-        remoteAssets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
 
-        const localFiles = await this.getLocalFiles(destDir, knownDirs);
+        const localFiles = await this.getLocalFiles(themeDir, ShopifyCore.THEME_DIRS);
         const deletePaths = new Set();
 
         // this loop inspection is opposite the other ones. should iterate over the local files not the remote files
         for (const asset of remoteAssets) {
-            const filename = path.join(destDir, asset.key);
+            const filename = path.join(themeDir, asset.key);
             if (localFiles.has(asset.key)) {
                 // API optimization
                 if (!force && await this.#isAssetSame(filename, asset.checksum, asset.updated_at, asset.size)) {
@@ -356,10 +353,10 @@ class ShopifyCore {
         const updateAsset = async key => {
             console.log(`UPDATE: ${key}`);
             //TODO: make this work for binary (use attachment)
-            const data = this.#readFile(path.join(destDir, key));
+            const data = this.#readFile(path.join(themeDir, key));
             const stringValue = typeof data === "string" ? data : null;
             const attachmentValue = typeof data !== "string" ? Buffer.from(data).toString("base64") : null;
-            await this.shopifyAPI.updateAsset(theme.id, key, stringValue, attachmentValue);
+            if (!dryrun) await this.shopifyAPI.updateAsset(theme.id, key, stringValue, attachmentValue);
         }
         await Promise.all([...localFiles.values()].map(async key => {
             if (SPECIAL_ASSET_UPLOAD_ORDER.includes(key)) return;
@@ -374,29 +371,26 @@ class ShopifyCore {
         // Deletes
         await Promise.all([...deletePaths.values()].map(async key => {
             console.log(`DELETE: ${key}`)
-            await this.shopifyAPI.deleteAsset(theme.id, key);
+            if (!dryrun) await this.shopifyAPI.deleteAsset(theme.id, key);
         }));
 
         return remoteAssets;
     }
 
     async watchAssets(themeName = null, destDir = "./shopify", force = false, dryrun=false) {
+        const themeDir = path.join(destDir, "theme");
         const theme = await this.listAssets(themeName);
         if (!theme || !theme.id) return [];
 
         const tempLog = console.log;
         console.log = console.info;
-        const remoteAssets = await this.pushAssets(themeName, destDir, force, dryrun);
+        await this.pushAssets(themeName, themeDir, force, dryrun);
         console.log = tempLog;
 
-        // start with the known set of base dirs to innumerate, but future proof a bit by probing for new dirs
-        const knownDirs = new Set(["assets","layout","sections","templates","locales","snippets","config"]);
-        remoteAssets.map(a => a.key.replace(/\/.*/, "")).forEach(knownDirs.add, knownDirs);
-
-        const localFiles = await this.getLocalFiles(destDir, knownDirs);
+        const localFiles = await this.getLocalFiles(themeDir, ShopifyCore.THEME_DIRS);
         const localAssets = new Map();
         for (const relativeFile of localFiles) {
-            const fullFilename = path.join(destDir, relativeFile);
+            const fullFilename = path.join(themeDir, relativeFile);
             localAssets.set(fullFilename, await md5File(fullFilename));
         }
 
@@ -406,13 +400,13 @@ class ShopifyCore {
             for (const filename of changes) {
                 // loop through the batched changes and apply only the entries that are create or update
                 changes.delete(filename);
-                if (this.#matchesShopifyIgnore(destDir, filename)) continue;
+                if (this.#matchesShopifyIgnore(themeDir, filename)) continue;
                 const md5 = await md5File(filename);
                 if (!md5) continue; // deleted?
 
                 if (!localAssets.has(filename) || localAssets.get(filename) !== md5) {
 
-                    const relativeFile = path.relative(destDir, filename);
+                    const relativeFile = path.relative(themeDir, filename);
                     const data = this.#readFile(filename);
                     if (!data) continue; // deleted?
 
@@ -424,14 +418,14 @@ class ShopifyCore {
                 }
             }
         }
-        for (const watchDir of knownDirs) {
-            console.info(`Watching for changes: /${watchDir}`);
+        for (const watchDir of ShopifyCore.THEME_DIRS) {
+            console.info(`Watching for changes: /theme/${watchDir}`);
 
-            fs.watch(path.join(destDir, watchDir), (event, relativeFile) => {
+            fs.watch(path.join(themeDir, watchDir), (event, relativeFile) => {
                 if (!relativeFile) return; // when would this happen?
 
                 console.info (`${event}: ${path.join(watchDir, relativeFile)}`);
-                const filename = path.join(destDir, watchDir, relativeFile);
+                const filename = path.join(themeDir, watchDir, relativeFile);
                 changes.add(filename);
 
                 for (const id of fsWait) {
