@@ -13,6 +13,6 @@
   "license": "MIT",
   "dependencies": {
     "commander": "^7.0.0",
-    "fetch-h2": "^2.5.1"
+    "fetch-h2": "^3.0.0"
   }
 }
