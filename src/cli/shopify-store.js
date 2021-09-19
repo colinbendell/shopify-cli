@@ -168,7 +168,7 @@ async function init(theme, options, command) {
 
     console.log('Initializing Local Environment...');
     const currTheme = await shopify.getTheme(theme);
-    const changeSet = await shopify.getChangeSets(theme);
+    const changeSet = await shopify.getChangeSets(theme, options);
 
     console.log('Calculating Change Sets:');
     if (options.details) {

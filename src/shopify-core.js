@@ -87,7 +87,7 @@ class ShopifyCore {
         return fs.readFileSync(filename, "binary");
     }
 
-    async getChangeSets(theme) {
+    async getChangeSets(theme, options) {
         // we use the current theme to match against other 'draft' themes that are similar to back fill the history
         const currTheme = await this.getTheme(theme);
 
@@ -97,10 +97,10 @@ class ShopifyCore {
             t => t.id === currTheme.id
                 || (!currTheme.theme_store_id && !t.theme_store_id && Date.parse(t.created_at) <= Date.parse(currTheme.created_at))
                 || (currTheme.theme_store_id === t.theme_store_id && Date.parse(t.created_at) <= Date.parse(currTheme.created_at)));
-        const menus = await this.listMenus().catch(() => {}) || [];
-        const pages = await this.listPages();
-        const blogArticles = await this.listBlogArticles();
-        const scriptTags = await this.listScriptTags();
+        const menus = (options.menus ? await this.listMenus().catch(() => {}) : null) || [];
+        const pages = (options.pages ? await this.listPages() : null) || [];
+        const blogArticles = (options.blogs ? await this.listBlogArticles() : null) || [];
+        const scriptTags = (options.scripts ? await this.listScriptTags() : null) || [];
         // redirects aren't update/create time versioned
         // const redirects = await shopify.listRedirects();
 
