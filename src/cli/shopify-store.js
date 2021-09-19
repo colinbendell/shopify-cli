@@ -201,7 +201,7 @@ async function init(theme, options, command) {
             if (options.scripts) await shopify.pullScriptTags(options.outputDir, false, false, filter);
             await gitCommit(options.outputDir, `Sync with Shopify @ ${createdAt}`, createdAt);
         }
-        await pull(options);
+        await pull(options, command);
         await gitCommit(options.outputDir, `Sync with Shopify @ ${new Date().toISOString()}`);
     }
 }
