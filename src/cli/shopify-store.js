@@ -164,6 +164,7 @@ async function publish(options, command) {
 
 async function init(theme, options, command) {
     const shopify = getShopify();
+    options.theme = theme;
     Object.assign(options, Object.assign(program.opts(), command.parent?.opts(), options));
 
     console.log('Initializing Local Environment...');
