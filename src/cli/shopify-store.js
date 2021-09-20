@@ -164,8 +164,8 @@ async function publish(options, command) {
 
 async function init(theme, options, command) {
     const shopify = getShopify();
-    options.theme = theme;
-    Object.assign(options, Object.assign(program.opts(), command.parent?.opts(), options));
+    if (command?.name() !== 'init') setCommand(command);
+    Object.assign(options, Object.assign(program.opts(), command.parent?.opts(), options, {theme}));
 
     console.log('Initializing Local Environment...');
     const currTheme = await shopify.getTheme(theme);
@@ -256,6 +256,13 @@ async function serve(options, command) {
     await shopify.deleteTheme(themeName);
 }
 
+function addSubCommands(cmd, action, extraParams = '') {
+    const subCommands = ['assets', 'scripts', 'menus', 'redirects', 'pages', 'blogs'];
+    for (const name of subCommands) {
+        cmd.command(`${name}${extraParams}`).action(action);
+    }
+}
+
 program
     .version('1.0');
 
@@ -275,13 +282,8 @@ const listCmd = program
     .command('list')
     .option('--theme <name>', "Only pull assets related to a theme name")
     .action(list);
-    listCmd.command('themes').action(list);
-    listCmd.command('assets').action(list);
-    listCmd.command('scripts').action(list);
-    listCmd.command('menus').action(list);
-    listCmd.command('redirects').action(list);
-    listCmd.command('pages').action(list);
-    listCmd.command('blogs').action(list);
+listCmd.command('themes').action(list);
+addSubCommands(listCmd, list);
 
 const pullCmd = program
     .command('pull')
@@ -291,12 +293,7 @@ const pullCmd = program
     .option('--filter-created <timestamp>', "Only pull files present at given timestamp")
     .option('--theme <name>', "Only pull assets related to a theme name")
     .action(pull);
-    pullCmd.command('assets').action(pull);
-    pullCmd.command('scripts').action(pull);
-    pullCmd.command('menus') .action(pull);
-    pullCmd.command('redirects').action(pull);
-    pullCmd.command('pages').action(pull);
-    pullCmd.command('blogs').action(pull);
+    addSubCommands(pullCmd, pull);
 
 const pushCmd = program
     .command('push')
@@ -305,14 +302,9 @@ const pushCmd = program
     .option('-n, --dry-run', "dont't save files" , false)
     .option('--theme <name>', "Only pull assets related to a theme name")
     .action(push);
-    pushCmd.command('assets').action(push);
-    pushCmd.command('scripts').action(push);
-    pushCmd.command('menus') .action(push);
-    pushCmd.command('redirects').action(push);
-    pushCmd.command('pages').action(push);
-    pushCmd.command('blogs').action(push);
+    addSubCommands(pushCmd, push);
 
-program
+const initCmd = program
     .command('init <theme>')
     .description('init a new theme on the remote')
     .option('--simple', 'show expand the output to include details', false)
@@ -320,6 +312,7 @@ program
     .option('-n, --dry-run', "dont't save files" , false)
     .option('--no-git', 'expand the output to include details', false)
     .action(init);
+    addSubCommands(initCmd, push, ' <theme>');
 
 program
     .command('serve')
