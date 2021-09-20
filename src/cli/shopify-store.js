@@ -72,8 +72,11 @@ async function gitCommit(cwd, message = "Sync with Shopify", commitDate = null) 
     }
 
     try {
+        const check = child_process.execFileSync('git', ['status', '--porcelain'], {cwd: program.opts().outputDir});
+        if (check?.toString()?.trim()?.length > 0) {
             child_process.execFileSync('git', ['add', '-A'], execOptions);
-        child_process.execFileSync('git', ['commit', '--allow-empty', '-a', '-m', message], execOptions);
+            child_process.execFileSync('git', ['commit', '-a', '-m', message], execOptions);
+        }
     }
     catch (e) {
         console.error(e);

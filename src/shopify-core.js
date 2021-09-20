@@ -92,11 +92,29 @@ class ShopifyCore {
         const currTheme = await this.getTheme(theme);
 
         // back fill of parallel theme history includes any theme that had development prior to the creation of the current theme
-        let themeAssets = [await this.listAssets(theme, true)].flat()
+        let themeAssets = [await this.listAssets(null, true)].flat()
         themeAssets = themeAssets.filter(
             t => t.id === currTheme.id
                 || (!currTheme.theme_store_id && !t.theme_store_id && Date.parse(t.created_at) <= Date.parse(currTheme.created_at))
+                //TODO: theme_store_id is null after a clone from a theme_store_id
                 || (currTheme.theme_store_id === t.theme_store_id && Date.parse(t.created_at) <= Date.parse(currTheme.created_at)));
+
+        for (const theme of [themeAssets].flat()) {
+            if (theme.id === currTheme.id) continue;
+            theme.assets = theme.assets.filter(a => Date.parse(a.created_at) <= Date.parse(currTheme.created_at));
+            for (const currAsset of theme.assets) {
+                if (currAsset.versions && currAsset.versions.length > 0) {
+                    currAsset.versions = currAsset.versions.filter(
+                        v => Date.parse(v.created_at) <= Date.parse(currTheme.created_at)
+                        || v.version === 1 //Special case where version 1 created_at is the actual date it was copied into the theme
+                    );
+                    if (currAsset.versions === 0) {
+                        theme.assets = theme.assets.filter(a => a !== currAsset);
+                    }
+                }
+            }
+        }
+
         const menus = (options.menus ? await this.listMenus().catch(() => {}) : null) || [];
         const pages = (options.pages ? await this.listPages() : null) || [];
         const blogArticles = (options.blogs ? await this.listBlogArticles() : null) || [];
@@ -104,7 +122,7 @@ class ShopifyCore {
         // redirects aren't update/create time versioned
         // const redirects = await shopify.listRedirects();
 
-        const products = await this.listProducts();
+        // const products = await this.listProducts();
         const changeSet = new Map();
         changeSet.add = function(updatedAt, value) {
             const valueDate = new Date(Date.parse(updatedAt) || 0).toISOString();
@@ -117,9 +135,13 @@ class ShopifyCore {
                 if (!asset.versions || asset.versions.length === 0) {
                     // use updated_at not created_at since @v created_at might not available
                     //TODO: change this to a tuple instead of string concatenation magic
-                    changeSet.add(asset.updated_at, theme.handle + "~" + asset.key);
+                    changeSet.add(asset.updated_at, theme.id + "~" + theme.handle + "~" + asset.key);
                 }
-                asset.versions?.forEach(item => changeSet.add(item.created_at, theme.handle + "~" + asset.key + "@" + item.version));
+                asset.versions?.forEach(item => {
+                    //special case where the first version created_at is the actual date vs updated_at when it was opened first
+                    const createdAt = item.version === 1 ? asset.created_at : item.created_at;
+                    changeSet.add(createdAt, theme.id + "~" + theme.handle + "~" + asset.key + "@" + item.version)
+                });
             }
         }
         menus.forEach(item => changeSet.add(item.updated_at, item.key));
@@ -161,7 +183,7 @@ class ShopifyCore {
         //TODO: normalize name?
         return res.filter(t =>
             (!name && t.role === 'main')
-            || (Number.isInteger(name) && t.id === name)
+            || (t.id === Number.parseInt(name) || 0)
             || (name && t.handle === ShopifyCore.handleName(name))
         )[0];
     }
