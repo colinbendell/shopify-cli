@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-const program = require('commander');
+const { program, Argument } = require('commander');
 const path = require('path');
 const child_process = require('child_process');
 const os = require("os");
@@ -36,17 +36,18 @@ function getShopify() {
     return _shopify;
 }
 
-function setCommand(command) {
-    const options = program.opts();
-    if (options.hasOwnProperty(command.name())) {
-        options.assets = false
-        options.menus = false
-        options.redirects = false
-        options.scripts = false
-        options.pages = false
-        options.blogs = false
-        options[command?.name() || 'assets'] = true;
+function setCommand(scope, options) {
+    const opts = program.opts();
+    if (scope && opts.hasOwnProperty(scope)) {
+        opts.assets = false
+        opts.menus = false
+        opts.redirects = false
+        opts.scripts = false
+        opts.pages = false
+        opts.blogs = false
+        opts[scope || 'assets'] = true;
     }
+    Object.assign(options, Object.assign(program.opts(), options));
 }
 
 async function getGitBranch(cwd) {
@@ -71,7 +72,7 @@ async function gitCommit(cwd, message = "Sync with Shopify", commitDate = null) 
     }
 
     try {
-        child_process.execFileSync('git', ['add', '-A'], execOptions);
+            child_process.execFileSync('git', ['add', '-A'], execOptions);
         child_process.execFileSync('git', ['commit', '--allow-empty', '-a', '-m', message], execOptions);
     }
     catch (e) {
@@ -79,12 +80,11 @@ async function gitCommit(cwd, message = "Sync with Shopify", commitDate = null) 
     }
 }
 
-async function list(options, command) {
+async function list(scope, options, command) {
     const shopify = getShopify();
-    if (command?.name()  !== 'list') setCommand(command);
-    Object.assign(options, Object.assign(program.opts(), command.parent?.opts(), options));
+    setCommand(scope, options);
 
-    if (command?.name() === "themes" || (command?.name()  === 'list' && !options.theme)) {
+    if (scope === "themes" && !options.theme) {
         //special case where we list themes as default when no them provided and when not running in a sub command
         const themes = await shopify.listThemes();
         for (const theme of themes || []) {
@@ -121,10 +121,9 @@ async function list(options, command) {
     }
 }
 
-async function pull(options, command) {
+async function pull(scope, options, command) {
     const shopify = getShopify();
-    if (command?.name() !== 'pull') setCommand(command);
-    Object.assign(options, Object.assign(program.opts(), command.parent?.opts(), options));
+    setCommand(scope, options);
 
     const filter = {
         createdAt: options.filterCreated
@@ -140,10 +139,9 @@ async function pull(options, command) {
     if (options.scripts) await shopify.pullScriptTags(options.outputDir, force, dryrun, filter);
 }
 
-async function push(options, command) {
+async function push(scope, options, command) {
     const shopify = getShopify();
-    if (command?.name()  !== 'push') setCommand(command);
-    Object.assign(options, Object.assign(program.opts(), command.parent?.opts(), options));
+    setCommand(scope, options);
 
     const dryrun = options.dryrun;
     const force = options.force;
@@ -163,14 +161,13 @@ async function publish(options, command) {
     await shopify.publishTheme(options.theme);
 }
 
-async function init(theme, options, command) {
+async function init(scope, options, command) {
     const shopify = getShopify();
-    if (command?.name() !== 'init') setCommand(command);
-    Object.assign(options, Object.assign(program.opts(), command.parent?.opts(), options, {theme}));
+    setCommand(scope, options);
 
     console.log('Initializing Local Environment...');
-    const currTheme = await shopify.getTheme(theme);
-    const changeSet = await shopify.getChangeSets(theme, options);
+    const currTheme = await shopify.getTheme(options.theme);
+    const changeSet = await shopify.getChangeSets(options.theme, options);
 
     console.log('Calculating Change Sets:');
     if (options.details) {
@@ -183,6 +180,8 @@ async function init(theme, options, command) {
     }
 
     if (options.git && await getGitBranch(options.outputDir)) {
+        const dryrun = options.dryrun;
+        const force = options.force;
         for (const createdAt of [...changeSet.keys()].sort()) {
             const filter = { createdAt }
 
@@ -197,14 +196,14 @@ async function init(theme, options, command) {
                 if (options.assets) await shopify.pullAssets(themeName, options.outputDir, false, false, filter);
             }
 
-            if (options.menus) await shopify.pullMenus(options.outputDir, false, false, filter).catch(e => e); //TODO: fix auth detection
-            if (options.pages) await shopify.pullPages(options.outputDir, false, false, filter);
-            if (options.blogs) await shopify.pullBlogArticles(options.outputDir, null, false, false, filter);
-            if (options.scripts) await shopify.pullScriptTags(options.outputDir, false, false, filter);
-            await gitCommit(options.outputDir, `Sync with Shopify @ ${createdAt}`, createdAt);
+            if (options.menus) await shopify.pullMenus(options.outputDir, force, dryrun, filter).catch(e => e); //TODO: fix auth detection
+            if (options.pages) await shopify.pullPages(options.outputDir, force, dryrun, filter);
+            if (options.blogs) await shopify.pullBlogArticles(options.outputDir, null, force, dryrun, filter);
+            if (options.scripts) await shopify.pullScriptTags(options.outputDir, force, dryrun, filter);
+            if (!dryrun) await gitCommit(options.outputDir, `Sync with Shopify @ ${createdAt}`, createdAt);
         }
-        await pull(options, command);
-        await gitCommit(options.outputDir, `Sync with Shopify @ ${new Date().toISOString()}`);
+        await pull(scope, options, command);
+        if (!dryrun) await gitCommit(options.outputDir, `Sync with Shopify @ ${new Date().toISOString()}`);
     }
 }
 
@@ -279,54 +278,59 @@ program
     .option('--no-pages', 'disable pushing pages', false)
     .option('--no-blogs', 'disable pushing blogs', false);
 
-const listCmd = program
-    .command('list')
-    .option('--theme <name>', "Only pull assets related to a theme name")
-    .action(list);
-    listCmd.command('themes').action(list);
-    addSubCommands(listCmd, list);
+const scope = new Argument('[scope]', 'optionally limit to one of')
+    .choices(['assets', 'scripts', 'menus', 'redirects', 'pages', 'blogs']);
 
-const pullCmd = program
+program
+    .command('list')
+    .addArgument(new Argument('[scope]', 'optionally list')
+        .choices(['themes', 'assets', 'scripts', 'menus', 'redirects', 'pages', 'blogs'])
+        .default('themes'))
+    .option('-t, --theme <name>', "Only list assets related to a theme name")
+    .action(list);
+
+program
     .command('pull')
     .description('pull all remote shopify changes locally (defaults to the currently active theme)')
-    .option('--force', 'force download all files', false)
+    .option('-t, --theme <name>', "Only pull assets related to a theme name")
     .option('-n, --dry-run', "dont't save files" , false)
     .option('--filter-created <timestamp>', "Only pull files present at given timestamp")
-    .option('--theme <name>', "Only pull assets related to a theme name")
+    .option('--force', 'force download all files', false)
+    .addArgument(scope)
     .action(pull);
-    addSubCommands(pullCmd, pull);
 
-const pushCmd = program
+program
     .command('push')
     .description('push all local changes up to shopify (defaults to the theme that is currently active)')
+    .option('-t, --theme <name>', "Only pull assets related to a theme name")
+    .option('-n, --dry-run', "dont't save files" , false)
     .option('--force', 'force download all files', false)
-    .option('-n, --dry-run', "dont't save files" , false)
-    .option('--theme <name>', "Only pull assets related to a theme name")
+    .addArgument(scope)
     .action(push);
-    addSubCommands(pushCmd, push);
 
-const initCmd = program
-    .command('init <theme>')
-    .description('init a new theme on the remote')
-    .option('--simple', 'show expand the output to include details', false)
-    .option('--details', 'expand the output to include details', false)
+program
+    .command('init')
+    .description('init a git repo from a store')
+    .option('-t, --theme <name|id>', "Only init git repo assets related to a theme name (or ID)")
+    .option('-m, --simple', 'show expand the output to include details', false)
+    .option('-d, --details', 'expand the output to include details', false)
     .option('-n, --dry-run', "dont't save files" , false)
-    .option('--no-git', 'expand the output to include details', false)
+    .option('-G, --no-git', 'expand the output to include details', false)
+    .addArgument(scope)
     .action(init);
-    addSubCommands(initCmd, push, ' <theme>');
 
 program
     .command('serve')
     .description('init a new theme on the remote')
+    .option('-t, --theme <name>', "specify the ephemeral theme name to use" )
     .option('-n, --dry-run', "dont't save files" , false)
-    .option('--theme <name>', "specify the ephemeral theme name to use" )
-    .option('--no-git', 'disable inspecting git for the branch name')
+    .option('-G, --no-git', 'disable inspecting git for the branch name')
     .action(serve);
 
 program
     .command('publish')
     .description('publish (make active) a given theme')
-    .option('--theme <name>', "specify the ephemeral theme name to use" )
+    .option('-t, --theme <name>', "specify the ephemeral theme name to use" )
     .action(publish);
 
 if (process.argv.indexOf("--debug") === -1) console.debug = function () {};
