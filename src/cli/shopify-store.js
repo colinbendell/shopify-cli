@@ -88,7 +88,8 @@ async function list(options, command) {
         //special case where we list themes as default when no them provided and when not running in a sub command
         const themes = await shopify.listThemes();
         for (const theme of themes || []) {
-            console.log(`${theme.handle || theme.name}${theme.role === 'main' ? " (ACTIVE)" : ""}`);
+            const active = theme.role === 'main' ? " [ACTIVE]" : "";
+            console.log(`${theme.handle || theme.name} (id: ${theme.id})${active}`);
         }
     }
     else {
@@ -282,8 +283,8 @@ const listCmd = program
     .command('list')
     .option('--theme <name>', "Only pull assets related to a theme name")
     .action(list);
-listCmd.command('themes').action(list);
-addSubCommands(listCmd, list);
+    listCmd.command('themes').action(list);
+    addSubCommands(listCmd, list);
 
 const pullCmd = program
     .command('pull')
